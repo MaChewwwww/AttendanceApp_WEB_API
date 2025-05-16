@@ -48,6 +48,8 @@ This project is a FastAPI-based web API for the AttendanceApp. It uses environme
    ```
 
 5. **Running the API**
+   alembic revision --autogenerate -m "Describe your change"
+   alembic upgrade head
    ```sh
    uvicorn main:app --reload
    ```
