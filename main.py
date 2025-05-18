@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, UploadFile, Depends, File, Form
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
-from models import User as UserModel, Base
+from models import User as UserModel, Student as StudentModel, Base
 from db import get_db
 import bcrypt
 from datetime import datetime
@@ -14,11 +14,14 @@ from models import AttendanceLog
 import site
 import os
 
+
 app = FastAPI()
 
 
 class UpdateProfileRequest(BaseModel):
-    name: str | None = None
+    first_name: str | None = None
+    middle_name: str | None = None
+    last_name: str | None = None
     email: EmailStr | None = None
 
 class LoginRequest(BaseModel):
@@ -26,57 +29,79 @@ class LoginRequest(BaseModel):
     password: str
 
 class RegisterRequest(BaseModel):
-    name: str
+    first_name: str
+    middle_name: str | None = None
+    last_name: str
     email: EmailStr
     password: str
+    student_number: str
 
 
 @app.post("/register", status_code=201)
 def register(request: RegisterRequest, db: Session = Depends(get_db)):
-    if db.query(UserModel).filter(UserModel.email == request.email).first():
-        raise HTTPException(status_code=400, detail="Email is already in use.")
+    try:
+        # Check if email is already in use
+        if db.query(UserModel).filter(UserModel.email == request.email).first():
+            raise HTTPException(status_code=400, detail="Email is already in use.")
+        
+        # Check if student number is already in use
+        if db.query(StudentModel).filter(StudentModel.student_number == request.student_number).first():
+            raise HTTPException(status_code=400, detail="Student number is already in use.")
 
-    hashed_pw = bcrypt.hashpw(request.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-    current_year = datetime.now().year
+        # Hash the password
+        hashed_pw = bcrypt.hashpw(request.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
-    last_user = db.query(UserModel).filter(
-        UserModel.student_number.like(f'{current_year}-AAAAA%')
-    ).order_by(UserModel.student_number.desc()).first()
+        # Create the user
+        user = UserModel(
+            first_name=request.first_name,
+            middle_name=request.middle_name,
+            last_name=request.last_name,
+            email=request.email,
+            password_hash=hashed_pw,
+            role="Student",
+            face_image=None,  
+            status="pending"
+        )
+        db.add(user)
+        db.flush()  # Flush to get the user ID before committing
 
-    if last_user and last_user.student_number:
-        last_num = int(last_user.student_number.split('-')[1][5:])
-        new_num = last_num + 1
-    else:
-        new_num = 1
+        # Create the student record without section
+        student = StudentModel(
+            user_id=user.id,
+            student_number=request.student_number,
+            # Don't set section at all
+        )
+        db.add(student)
+        
+        # Commit both records
+        db.commit()
+        db.refresh(user)
 
-    student_number = f"{current_year}-AAAAA{new_num:05d}"
-
-    user = UserModel(
-        name=request.name,
-        email=request.email,
-        password_hash=hashed_pw,
-        role="Student",
-        student_number=student_number,
-        face_image=None  # No image on registration
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-
-    return {
-        "user_id": user.id,
-        "name": user.name,
-        "email": user.email,
-        "role": user.role,
-        "student_number": user.student_number,
-        "face_image": None  # No image at registration
-    }
+        return {
+            "user_id": user.id,
+            "name": f"{user.first_name} {user.last_name}",
+            "email": user.email,
+            "role": user.role,
+            "student_number": student.student_number,
+            "status": user.status
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Registration error: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error during registration: {str(e)}")
 
 @app.post("/login")
 def login(request: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(UserModel).filter(UserModel.email == request.email).first()
     if not user or not bcrypt.checkpw(request.password.encode('utf-8'), user.password_hash.encode('utf-8')):
         raise HTTPException(status_code=400, detail="Invalid email or password.")
+    
+    # Check if it's a student login
+    student = db.query(StudentModel).filter(StudentModel.user_id == user.id).first()
+    if not student:
+        raise HTTPException(status_code=403, detail="Only students can log in to this portal.")
 
     # Encode face_image as base64 if it exists
     face_image_b64 = (
@@ -85,21 +110,54 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
 
     return {
         "user_id": user.id,
-        "name": user.name,
+        "first_name": user.first_name,
+        "middle_name": user.middle_name,
+        "last_name": user.last_name,
         "email": user.email,
         "role": user.role,
-        "student_number": user.student_number,
-        "face_image": face_image_b64  # Now safe for JSON
+        "student_number": student.student_number,
+        "face_image": face_image_b64,
+        "status": user.status
     }
 
-@app.put("/profile/{user_id}")
+@app.get("/profile/{user_id}")
+def get_profile(user_id: int, db: Session = Depends(get_db)):
+    user = db.query(UserModel).filter(UserModel.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+    
+    # Get student information
+    student = db.query(StudentModel).filter(StudentModel.user_id == user_id).first()
+    
+    # Encode face_image as base64 if it exists
+    face_image_b64 = (
+        base64.b64encode(user.face_image).decode("utf-8") if user.face_image else None
+    )
+    
+    return {
+        "id": user.id,
+        "first_name": user.first_name,
+        "middle_name": user.middle_name,
+        "last_name": user.last_name,
+        "email": user.email,
+        "role": user.role,
+        "student_number": student.student_number if student else None,
+        "profile_image": user.profile_image,
+        "face_image": face_image_b64,
+        "status": user.status
+    }
+
+@app.put("/profile/update/{user_id}")
 async def update_profile(
     user_id: int,
-    name: str = Form(...),
+    first_name: str = Form(...),
+    middle_name: str = Form(None),
+    last_name: str = Form(...),
     email: EmailStr = Form(...),
-    face_image: UploadFile = File(None),
+    profile_image: UploadFile = File(None),
     db: Session = Depends(get_db)
 ):
+    # Find the user
     user = db.query(UserModel).filter(UserModel.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
@@ -108,33 +166,98 @@ async def update_profile(
     if db.query(UserModel).filter(UserModel.email == email, UserModel.id != user_id).first():
         raise HTTPException(status_code=400, detail="Email is already in use.")
 
-    user.name = name
+    # Update basic user information
+    user.first_name = first_name
+    user.middle_name = middle_name
+    user.last_name = last_name
     user.email = email
 
-    if face_image is not None:
-        user.face_image = await face_image.read()
+    # Handle profile image upload
+    if profile_image is not None:
+        # Read the file content
+        file_content = await profile_image.read()
+        
+        # Get file extension
+        file_extension = profile_image.filename.split('.')[-1].lower()
+        if file_extension not in ['jpg', 'jpeg', 'png', 'gif']:
+            raise HTTPException(status_code=400, detail="Only image files (jpg, jpeg, png, gif) are allowed")
+        
+        # Generate filename using user id and timestamp
+        filename = f"profile_{user_id}_{int(datetime.now().timestamp())}.{file_extension}"
+        
+        # Save to filesystem
+        upload_dir = "uploads/profiles"
+        os.makedirs(upload_dir, exist_ok=True)
+        file_path = os.path.join(upload_dir, filename)
+        
+        with open(file_path, "wb") as f:
+            f.write(file_content)
+        
+        # Store path in database
+        user.profile_image = file_path
 
+    # Save changes
     db.commit()
     db.refresh(user)
 
-    # Encode face_image as base64 if it exists
-    face_image_b64 = (
-        base64.b64encode(user.face_image).decode("utf-8") if user.face_image else None
-    )
-
+    # Get student information
+    student = db.query(StudentModel).filter(StudentModel.user_id == user_id).first()
+    
     return {
         "id": user.id,
-        "name": user.name,
+        "first_name": user.first_name,
+        "middle_name": user.middle_name,
+        "last_name": user.last_name,
         "email": user.email,
         "role": user.role,
-        "student_number": user.student_number,
-        "face_image": face_image_b64  # Now safe for JSON
+        "student_number": student.student_number if student else None,
+        "profile_image": user.profile_image,
+        "status": user.status
+    }
+
+@app.post("/register-face/{user_id}")
+async def register_face(
+    user_id: int,
+    face_image: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    user = db.query(UserModel).filter(UserModel.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+    
+    # Read the uploaded image
+    face_data = await face_image.read()
+    
+    # Verify that the image contains a face
+    try:
+        img_np = np.frombuffer(face_data, np.uint8)
+        img = cv2.imdecode(img_np, cv2.IMREAD_COLOR)
+        if img is None:
+            raise HTTPException(status_code=400, detail="Could not decode image.")
+        
+        # Check if a face is detected
+        face_encodings = face_recognition.face_encodings(img)
+        if not face_encodings:
+            raise HTTPException(status_code=400, detail="No face detected in the image.")
+    
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error processing face image: {str(e)}")
+    
+    # Store the face image
+    user.face_image = face_data
+    db.commit()
+    
+    return {
+        "message": "Face registered successfully",
+        "user_id": user.id
     }
 
 
 @app.post("/validate_face/{user_id}")
 async def validate_face(
     user_id: int,
+    course_id: int = Form(...),
+    section_id: int = Form(...),
     image: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
@@ -192,6 +315,8 @@ async def validate_face(
             # Save to attendance_logs
             log = AttendanceLog(
                 user_id=user.id,
+                course_id=course_id,
+                section_id=section_id,
                 date=datetime.now(),
                 status="Present",
                 image=uploaded_bytes

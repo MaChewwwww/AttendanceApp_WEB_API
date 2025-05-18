@@ -51,6 +51,6 @@ This project is a FastAPI-based web API for the AttendanceApp. It uses environme
    alembic revision --autogenerate -m "Describe your change"
    alembic upgrade head
    ```sh
-   uvicorn main:app --reload
+   uvicorn Main:app --reload
    ```
    > **Note:** Use `Main:app` if your file is named `Main.py`. Use `main:app` if your file is named `main.py`.
