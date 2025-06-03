@@ -185,7 +185,7 @@ def validate_registration_fields(
         
         print(f"=== VALIDATION REQUEST DEBUG ===")
         print(f"Received request: {request}")
-        print(f"Time: {datetime.now().isoformat()}")
+        print(f"Time: {datetime.now().replace(hour=10, minute=0, second=0, microsecond=0).isoformat()}")
         print("================================")
         
         errors = []
