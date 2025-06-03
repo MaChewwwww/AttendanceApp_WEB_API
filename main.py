@@ -117,6 +117,23 @@ class OTPResponse(BaseModel):
     message: str
     otp_id: Optional[int] = None
 
+# Registration validation model
+class RegistrationValidationRequest(BaseModel):
+    """Request model for validating registration fields"""
+    first_name: Optional[str] = ""
+    last_name: Optional[str] = ""
+    birthday: Optional[str] = ""  # Format: "YYYY-MM-DD"
+    contact_number: Optional[str] = ""
+    student_number: Optional[str] = ""
+    email: Optional[str] = ""  # Changed from EmailStr to str to allow empty values
+    password: Optional[str] = ""
+
+class RegistrationValidationResponse(BaseModel):
+    """Response model for registration validation"""
+    is_valid: bool
+    message: str
+    errors: Optional[list] = None
+
 #------------------------------------------------------------
 # Health Check
 #------------------------------------------------------------
@@ -145,12 +162,143 @@ def validate_face_endpoint(
         raise HTTPException(status_code=400, detail=f"Error validating face: {str(e)}")
 
 #------------------------------------------------------------
-# Registration Flow
+# Registration Flow for Students
 #------------------------------------------------------------
 
-# 1. OTP-based Registration Flow (Recommended)
+# Step 0: Validate registration fields
+@app.post("/registerStudent/validate-fields", response_model=RegistrationValidationResponse)
+def validate_registration_fields(
+    request: RegistrationValidationRequest,
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Validate registration fields before proceeding with face capture:
+    1. Validate all required fields
+    2. Check business rules (age, email domain, password strength, etc.)
+    3. Check for existing email and student number
+    4. Return validation result
+    """
+    try:
+        import re
+        from datetime import datetime, date
+        
+        print(f"=== VALIDATION REQUEST DEBUG ===")
+        print(f"Received request: {request}")
+        print("================================")
+        
+        errors = []
+        
+        # 1. First name validation
+        if not request.first_name or not request.first_name.strip():
+            errors.append("First name is required.")
+        
+        # 2. Last name validation
+        if not request.last_name or not request.last_name.strip():
+            errors.append("Last name is required.")
+        
+        # 3. Birthday validation
+        if not request.birthday or not request.birthday.strip():
+            errors.append("Birthday is required.")
+        else:
+            try:
+                birthday_date = datetime.strptime(request.birthday, "%Y-%m-%d").date()
+                today = date.today()
+                age = today.year - birthday_date.year - ((today.month, today.day) < (birthday_date.month, birthday_date.day))
+                
+                if age < 16:
+                    errors.append("You must be at least 16 years old to register.")
+            except ValueError:
+                errors.append("Invalid birthday format. Please use YYYY-MM-DD format.")
+        
+        # 4. Contact number validation
+        if not request.contact_number or not request.contact_number.strip():
+            errors.append("Contact number is required.")
+        else:
+            # Remove any non-digit characters for validation
+            clean_contact = re.sub(r'\D', '', request.contact_number)
+            if len(clean_contact) != 11:
+                errors.append("Contact number must be exactly 11 digits.")
+        
+        # 5. Student number validation (required and no duplicates)
+        if not request.student_number or not request.student_number.strip():
+            errors.append("Student number is required.")
+        else:
+            try:
+                existing_student = db.query(Student).filter(Student.student_number == request.student_number).first()
+                if existing_student:
+                    errors.append("Student number is already in use.")
+            except Exception as e:
+                print(f"Error checking student number: {e}")
+                errors.append("Database error checking student number.")
+        
+        # 6. Email validation (required, domain check, no duplicates)
+        if not request.email or not request.email.strip():
+            errors.append("Email is required.")
+        else:
+            # Basic email format validation
+            email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+            if not re.match(email_pattern, request.email):
+                errors.append("Invalid email format.")
+            else:
+                # Check PUP domain
+                if not request.email.endswith("@iskolarngbayan.pup.edu.ph"):
+                    errors.append("Email must be a valid PUP email address (@iskolarngbayan.pup.edu.ph).")
+                
+                # Check for duplicates
+                try:
+                    existing_user = db.query(User).filter(User.email == request.email).first()
+                    if existing_user:
+                        errors.append("Email is already in use.")
+                except Exception as e:
+                    print(f"Error checking email: {e}")
+                    errors.append("Database error checking email.")
+        
+        # 7. Password validation
+        if not request.password or not request.password.strip():
+            errors.append("Password is required.")
+        else:
+            password_errors = []
+            
+            if len(request.password) < 6:
+                password_errors.append("at least 6 characters")
+            
+            if not re.search(r'[a-z]', request.password):
+                password_errors.append("at least 1 lowercase letter")
+            
+            if not re.search(r'[A-Z]', request.password):
+                password_errors.append("at least 1 uppercase letter")
+            
+            if not re.search(r'[!@#$%^&*(),.?":{}|<>]', request.password):
+                password_errors.append("at least 1 special character")
+            
+            if password_errors:
+                errors.append(f"Password must contain {', '.join(password_errors)}.")
+        
+        # Return validation result
+        if errors:
+            print(f"Validation failed with errors: {errors}")
+            return {
+                "is_valid": False,
+                "message": "Validation failed",
+                "errors": errors
+            }
+        
+        print("All fields are valid")
+        return {
+            "is_valid": True,
+            "message": "All fields are valid",
+            "errors": None
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Unexpected error in validation: {e}")
+        raise HTTPException(status_code=500, detail=f"Validation failed: {str(e)}")
+
 # Step 1: Initialize registration and send OTP
-@app.post("/register/init", response_model=OTPResponse)
+@app.post("/registerStudent/init", response_model=OTPResponse)
 def init_registration(
     request: InitRegistrationRequest,
     db: Session = Depends(get_db),
@@ -161,6 +309,8 @@ def init_registration(
     1. Validate face image if provided
     2. Send OTP to user's email
     3. Return OTP ID for verification
+    
+    Note: Field validation should be done via /register/validate-fields first
     """
     try:
         # Validate face image if provided
@@ -198,7 +348,7 @@ def init_registration(
         raise HTTPException(status_code=500, detail=f"Registration initialization failed: {str(e)}")
 
 # Step 2: Verify OTP and complete registration
-@app.post("/register/verify", status_code=201)
+@app.post("/registerStudent/verify", status_code=201)
 def verify_registration(
     request: OTPVerificationRequest,
     db: Session = Depends(get_db),

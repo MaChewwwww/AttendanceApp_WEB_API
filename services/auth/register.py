@@ -20,16 +20,6 @@ class RegisterRequest(BaseModel):
 
 def register_student(request: RegisterRequest, db: Session):
     try:
-        # Check for existing email
-        if db.query(UserModel).filter(UserModel.email == request.email).first():
-            print(f"Registration failed: Email {request.email} is already in use")
-            raise HTTPException(status_code=400, detail="Email is already in use.")
-        
-        # Check for existing student number
-        if db.query(StudentModel).filter(StudentModel.student_number == request.student_number).first():
-            print(f"Registration failed: Student number {request.student_number} is already in use")
-            raise HTTPException(status_code=400, detail="Student number is already in use.")
-
         # Hash password and prepare user data
         hashed_pw = bcrypt.hashpw(request.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         birthday_date = datetime.strptime(request.birthday, "%Y-%m-%d").date()

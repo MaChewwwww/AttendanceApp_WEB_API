@@ -6,8 +6,8 @@ import os
 import importlib.util
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+# Load environment variables with override=True to ensure consistency
+load_dotenv(override=True)
 
 # Get desktop path from environment
 DESKTOP_APP_PATH = os.getenv("DESKTOP_APP_PATH")

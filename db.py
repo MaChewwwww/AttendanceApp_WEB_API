@@ -4,8 +4,8 @@ import os
 import importlib.util
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+# Load environment variables ONCE with override=True to ensure our .env file takes precedence
+load_dotenv(override=True)
 
 # Get paths from environment variables
 DESKTOP_APP_PATH = os.getenv("DESKTOP_APP_PATH")
