@@ -19,15 +19,6 @@ class OTPService:
     def create_registration_otp(email: str, first_name: str, registration_data: dict, db: Session):
         """
         Create a registration OTP and send it via email
-        
-        Args:
-            email (str): User's email
-            first_name (str): User's first name
-            registration_data (dict): User registration data
-            db (Session): Database session
-            
-        Returns:
-            tuple: (success, message, otp_id)
         """
         # Generate OTP code
         otp_code = OTPService.generate_otp()
@@ -73,14 +64,6 @@ class OTPService:
     def verify_otp(otp_id: int, otp_code: str, db: Session):
         """
         Verify an OTP code
-        
-        Args:
-            otp_id (int): OTP request ID
-            otp_code (str): OTP code to verify
-            db (Session): Database session
-            
-        Returns:
-            tuple: (is_valid, message, registration_data)
         """
         try:
             # Get OTP request

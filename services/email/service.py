@@ -79,23 +79,6 @@ class EmailService:
                 html_part = MIMEText(body_html, "html")
                 message.attach(html_part)
             
-            # Add attachments if provided
-            if attachments:
-                for file_path in attachments:
-                    try:
-                        with open(file_path, "rb") as attachment:
-                            part = MIMEBase("application", "octet-stream")
-                            part.set_payload(attachment.read())
-                        
-                        encoders.encode_base64(part)
-                        part.add_header(
-                            "Content-Disposition",
-                            f"attachment; filename= {file_path.split('/')[-1]}"
-                        )
-                        message.attach(part)
-                    except Exception as e:
-                        print(f"Error attaching file {file_path}: {e}")
-            
             # Send email
             server = self._create_smtp_connection()
             text = message.as_string()
