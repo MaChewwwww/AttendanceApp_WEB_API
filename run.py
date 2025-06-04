@@ -20,7 +20,11 @@ if __name__ == "__main__":
     print(f"✓ Environment: {env}")
     print(f"✓ API server: http://{host}:{port}")
     print(f"✓ Documentation: http://{host}:{port}/docs")
-    print(f"✓ Validation endpoint: http://{host}:{port}/registerStudent/validate-fields")
+    print(f"✓ Registration Flow:")
+    print(f"  • Step 1: http://{host}:{port}/registerStudent/validate-fields")
+    print(f"  • Step 2: http://{host}:{port}/registerStudent/validate-face")
+    print(f"  • Step 3: http://{host}:{port}/registerStudent/send-otp")
+    print(f"  • Step 4: http://{host}:{port}/registerStudent/verify")
     
     if api_key:
         print(f"✓ API Key authentication enabled ({api_key_name})")

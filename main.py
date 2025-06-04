@@ -134,6 +134,11 @@ class RegistrationValidationResponse(BaseModel):
     message: str
     errors: Optional[list] = None
 
+# Face validation for registration
+class RegistrationFaceValidationRequest(BaseModel):
+    """Request model for validating face during registration"""
+    face_image: str  # Base64 encoded image
+
 #------------------------------------------------------------
 # Health Check
 #------------------------------------------------------------
@@ -298,27 +303,53 @@ def validate_registration_fields(
         print(f"Unexpected error in validation: {e}")
         raise HTTPException(status_code=500, detail=f"Validation failed: {str(e)}")
 
-# Step 1: Initialize registration and send OTP
-@app.post("/registerStudent/init", response_model=OTPResponse)
-def init_registration(
+# Step 1: Validate face image for registration
+@app.post("/registerStudent/validate-face", response_model=FaceValidationResponse)
+def validate_registration_face(
+    request: RegistrationFaceValidationRequest,
+    api_key: str = Security(get_api_key)
+):
+    """
+    Validate face image for registration:
+    1. Check if the provided image contains a properly visible face
+    2. Ensure face quality meets requirements
+    3. Return validation result
+    
+    Note: Field validation should be done via /registerStudent/validate-fields first
+    """
+    try:
+        print(f"=== FACE VALIDATION REQUEST DEBUG ===")
+        print(f"Received face validation request for registration")
+        print("====================================")
+        
+        is_valid, message = validate_face_image(request.face_image)
+        
+        print(f"Face validation result: {is_valid} - {message}")
+        
+        return {"is_valid": is_valid, "message": message}
+    except Exception as e:
+        print(f"Face validation error: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Error validating face: {str(e)}")
+
+# Step 2: Send OTP for registration
+@app.post("/registerStudent/send-otp", response_model=OTPResponse)
+def send_registration_otp(
     request: InitRegistrationRequest,
     db: Session = Depends(get_db),
     api_key: str = Security(get_api_key)
 ):
     """
-    Initialize the registration process:
-    1. Validate face image if provided
-    2. Send OTP to user's email
+    Send OTP for registration:
+    1. Send OTP to user's email
+    2. Store registration data temporarily
     3. Return OTP ID for verification
     
-    Note: Field validation should be done via /register/validate-fields first
+    Note: Field and face validation should be completed before this step
     """
     try:
-        # Validate face image if provided
-        if request.face_image:
-            is_valid, message = validate_face_image(request.face_image)
-            if not is_valid:
-                raise HTTPException(status_code=400, detail=message)
+        print(f"=== SEND OTP REQUEST DEBUG ===")
+        print(f"Sending OTP to: {request.registration_data.email}")
+        print("=============================")
         
         # Convert registration data to dict for storage
         reg_dict = request.registration_data.dict()
@@ -346,9 +377,9 @@ def init_registration(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Registration initialization failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to send OTP: {str(e)}")
 
-# Step 2: Verify OTP and complete registration
+# Step 3: Verify OTP and complete registration
 @app.post("/registerStudent/verify", status_code=201)
 def verify_registration(
     request: OTPVerificationRequest,
