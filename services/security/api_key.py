@@ -11,12 +11,6 @@ load_dotenv(override=True)
 API_KEY = os.getenv("API_KEY")
 API_KEY_NAME = os.getenv("API_KEY_NAME", "AttendanceApp-API-Key")
 
-# Debug: Print what was loaded (keep for now to verify it works)
-print(f"=== API KEY DEBUG ===")
-print(f"Loaded API_KEY: {API_KEY}")
-print(f"Loaded API_KEY_NAME: {API_KEY_NAME}")
-print(f"===================")
-
 if not API_KEY:
     print("Warning: API_KEY environment variable not set. API endpoints won't be protected!")
 

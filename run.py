@@ -25,6 +25,8 @@ if __name__ == "__main__":
     print(f"  • Step 2: http://{host}:{port}/registerStudent/validate-face")
     print(f"  • Step 3: http://{host}:{port}/registerStudent/send-otp")
     print(f"  • Step 4: http://{host}:{port}/registerStudent/verify")
+    print(f"🧹 OTP Cleanup: Automatic every 15 minutes")
+    print(f"📁 Cleanup logs: logs/otp_cleanup.log")
     
     if api_key:
         print(f"✓ API Key authentication enabled ({api_key_name})")
@@ -38,9 +40,9 @@ if __name__ == "__main__":
     print("────────────────────────────────────────────────────")
     
     uvicorn.run(
-        "main:app", 
+        "main:app",  # Keep as lowercase main:app
         host=host, 
         port=port, 
         reload=reload_enabled,
-        log_level="info"  # Changed to info to see more details
+        log_level="info"
     )

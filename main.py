@@ -20,6 +20,7 @@ from services.auth.register import register_student, RegisterRequest
 from services.security.api_key import get_api_key
 from services.face.validator import validate_face_image
 from services.otp.service import OTPService
+from services.otp.cleanup import start_cleanup_service, stop_cleanup_service
 
 #------------------------------------------------------------
 # FastAPI Application Setup
@@ -32,6 +33,12 @@ async def lifespan(app: FastAPI):
     try:
         # Database connection is verified just by creating the app
         print("✓ Database connection established")
+        
+        # Start OTP cleanup service
+        print("🚀 Starting OTP cleanup service...")
+        cleanup_task = await start_cleanup_service()
+        print("✓ OTP cleanup service started (runs every 15 minutes)")
+        
     except Exception as e:
         print(f"Database initialization error: {e}")
         traceback.print_exc()
@@ -40,7 +47,15 @@ async def lifespan(app: FastAPI):
     yield
     
     # Cleanup code (when shutting down)
-    print("Shutting down API...")
+    print("🛑 Shutting down API...")
+    try:
+        print("🧹 Stopping OTP cleanup service...")
+        await stop_cleanup_service()
+        print("✓ OTP cleanup service stopped")
+    except Exception as e:
+        print(f"Error stopping cleanup service: {e}")
+    
+    print("👋 API shutdown complete")
 
 # Create FastAPI app
 app = FastAPI(
