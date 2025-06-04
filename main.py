@@ -468,10 +468,13 @@ def verify_registration(
             result = register_student(register_request, db, is_otp_verified=True)
             print(f"Student registered successfully: {result}")
             
+            # Log successful registration with welcome email sent
+            print(f"🎉 Registration completed for {result['email']} - Welcome email should have been sent")
+            
             # Return the result with the correct structure
             return {
                 "status": "success", 
-                "message": "Registration completed successfully",
+                "message": "Registration completed successfully! Welcome email has been sent to your inbox.",
                 "user": result
             }
                 

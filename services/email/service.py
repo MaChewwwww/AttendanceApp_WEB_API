@@ -181,6 +181,92 @@ Best regards,
             print(error_msg)
             return False, error_msg
 
+    def send_welcome_email(self, to_email, first_name):
+        """
+        Send welcome email after successful verification
+        
+        Args:
+            to_email (str): Recipient email
+            first_name (str): User's first name
+            
+        Returns:
+            tuple: (success, message)
+        """
+        try:
+            subject = f"Welcome to AttendanceApp!"
+            
+            # Plain text version
+            body_text = f"""
+Hello {first_name},
+
+Welcome to AttendanceApp! Your account has been successfully verified.
+
+You can now:
+- Submit attendance using face recognition
+- View your attendance history
+- Track your attendance analytics
+
+Thank you for joining us!
+
+Best regards,
+AttendanceApp Team
+            """.strip()
+            
+            # HTML version
+            body_html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+        .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+        .header {{ background-color: #10B981; color: white; padding: 20px; text-align: center; }}
+        .content {{ padding: 20px; background-color: #f9f9f9; }}
+        .feature {{ padding: 10px; margin: 10px 0; background-color: white; border-radius: 5px; }}
+        .footer {{ padding: 20px; text-align: center; color: #666; font-size: 12px; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Welcome to AttendanceApp!</h1>
+        </div>
+        <div class="content">
+            <h2>Hello {first_name},</h2>
+            <p>Congratulations! Your account has been successfully verified and is now active.</p>
+            
+            <h3>What you can do now:</h3>
+            <div class="feature">
+                <strong>📸 Face Recognition Attendance</strong><br>
+                Submit your attendance quickly and securely using face recognition technology.
+            </div>
+            <div class="feature">
+                <strong>📊 Attendance History</strong><br>
+                View and track your attendance records over time.
+            </div>
+            <div class="feature">
+                <strong>📈 Analytics Dashboard</strong><br>
+                Get insights into your attendance patterns and performance.
+            </div>
+            
+            <p>Thank you for choosing AttendanceApp. We're excited to have you on board!</p>
+        </div>
+        <div class="footer">
+            <p>© 2024 AttendanceApp. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>
+            """.strip()
+            
+            return self.send_email(to_email, subject, body_text, body_html)
+            
+        except Exception as e:
+            error_msg = f"Failed to send welcome email: {str(e)}"
+            print(error_msg)
+            return False, error_msg
+
     # Add placeholder methods for other OTP types to avoid errors
     def send_password_reset_otp_email(self, to_email, first_name, otp_code):
         """Placeholder for password reset OTP email"""

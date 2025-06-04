@@ -87,6 +87,19 @@ def register_student(request: RegisterRequest, db: Session, is_otp_verified: boo
         verification_status = "verified" if is_otp_verified else "pending admin approval"
         print(f"Successfully registered user: {user.email} (ID: {user.id}) - {verification_status} with status ID: {default_status_id}")
         
+        # Send welcome email after successful registration
+        if is_otp_verified:  # Only send welcome email for OTP-verified users
+            try:
+                from services.email.service import EmailService
+                email_service = EmailService()
+                success, message = email_service.send_welcome_email(user.email, user.first_name)
+                if success:
+                    print(f"✅ Welcome email sent to {user.email}")
+                else:
+                    print(f"⚠️ Warning: Could not send welcome email to {user.email}: {message}")
+            except Exception as email_error:
+                print(f"⚠️ Warning: Could not send welcome email: {str(email_error)}")
+        
         # Return structure that matches the reference implementation
         return {
             "user_id": user.id,
