@@ -424,30 +424,86 @@ def verify_registration(
     3. Return the registered student information
     """
     try:
-        # Verify OTP using the main database
-        is_valid, message, registration_data = OTPService.verify_otp(
+        print(f"=== VERIFY REGISTRATION DEBUG ===")
+        print(f"Verifying OTP ID: {request.otp_id}, Code: {request.otp_code}")
+        print("================================")
+        
+        # Verify OTP and get registration data
+        is_valid, message_or_data, registration_data = OTPService.verify_otp(
             otp_id=request.otp_id,
             otp_code=request.otp_code,
             db=db
         )
         
         if not is_valid:
-            raise HTTPException(status_code=400, detail=message)
+            print(f"OTP verification failed: {message_or_data}")
+            raise HTTPException(status_code=400, detail=message_or_data)
         
         if not registration_data:
+            print("No registration data found")
             raise HTTPException(status_code=400, detail="Registration data not found")
         
-        # Convert back to RegisterRequest
-        register_request = RegisterRequest(**registration_data)
+        print(f"OTP verified successfully, proceeding with registration")
+        
+        # Check if the message_or_data contains user info (already registered case)
+        if isinstance(message_or_data, dict) and 'user_id' in message_or_data:
+            print(f"User already registered, returning existing info")
+            return {
+                "status": "success",
+                "message": "Registration completed successfully",
+                "user": message_or_data
+            }
+        
+        # Convert back to RegisterRequest for registration
+        try:
+            register_request = RegisterRequest(**registration_data)
+            print(f"Converted registration data for user: {register_request.email}")
+        except Exception as conversion_error:
+            print(f"Error converting registration data: {conversion_error}")
+            raise HTTPException(status_code=400, detail="Invalid registration data format")
         
         # Register the student in the main database
-        result = register_student(register_request, db)
-        
-        return result
+        try:
+            # Pass is_otp_verified=True since this is after successful OTP verification
+            result = register_student(register_request, db, is_otp_verified=True)
+            print(f"Student registered successfully: {result}")
+            
+            # Return the result with the correct structure
+            return {
+                "status": "success", 
+                "message": "Registration completed successfully",
+                "user": result
+            }
+                
+        except Exception as reg_error:
+            print(f"Registration failed: {str(reg_error)}")
+            # Check if it's a duplicate error
+            if "already in use" in str(reg_error).lower():
+                raise HTTPException(status_code=409, detail=str(reg_error))
+            else:
+                raise HTTPException(status_code=500, detail=f"Registration failed: {str(reg_error)}")
+            
     except HTTPException:
         raise
     except Exception as e:
+        print(f"Unexpected error in verify_registration: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Registration verification failed: {str(e)}")
+
+
+# Step 3: Verify OTP and complete registration (alternative endpoint name)
+@app.post("/registerStudent/verify-registration", status_code=201)
+def verify_registration_alt(
+    request: OTPVerificationRequest,
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Alternative endpoint name for OTP verification and registration completion
+    (calls the same logic as /registerStudent/verify)
+    """
+    return verify_registration(request, db, api_key)
 
 # 2. Legacy/Direct Registration Methods (For Backward Compatibility)
 
