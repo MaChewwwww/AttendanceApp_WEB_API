@@ -53,7 +53,12 @@ app = FastAPI(
 # Add CORS middleware to allow cross-origin requests
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=[
+        "http://localhost:*",
+        "http://127.0.0.1:*", 
+        "https://localhost:*",
+        "https://127.0.0.1:*"
+    ],
     allow_credentials=True,
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
@@ -189,8 +194,9 @@ def validate_registration_fields(
         from datetime import datetime, date
         
         print(f"=== VALIDATION REQUEST DEBUG ===")
-        print(f"Received request: {request}")
-        print(f"Time: {datetime.now().replace(hour=10, minute=0, second=0, microsecond=0).isoformat()}")
+        print(f"Received request from frontend: {request}")
+        print(f"Request headers received")
+        print(f"Time: {datetime.now().isoformat()}")
         print("================================")
         
         errors = []
