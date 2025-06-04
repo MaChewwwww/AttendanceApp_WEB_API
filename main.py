@@ -364,13 +364,20 @@ def send_registration_otp(
         if request.face_image:
             reg_dict["face_image"] = request.face_image
         
-        # Create and send OTP for registration
-        success, message, otp_id = OTPService.create_registration_otp(
-            email=request.registration_data.email,
-            first_name=request.registration_data.first_name,
-            registration_data=reg_dict,
-            db=db
-        )
+        # Create and send OTP for registration with better error handling
+        try:
+            success, message, otp_id = OTPService.create_registration_otp(
+                email=request.registration_data.email,
+                first_name=request.registration_data.first_name,
+                registration_data=reg_dict,
+                db=db
+            )
+            
+            print(f"OTP Service result: success={success}, message={message}, otp_id={otp_id}")
+            
+        except Exception as otp_error:
+            print(f"OTP Service error: {str(otp_error)}")
+            raise HTTPException(status_code=500, detail=f"OTP creation failed: {str(otp_error)}")
         
         if not success:
             raise HTTPException(status_code=500, detail=message)
@@ -383,6 +390,9 @@ def send_registration_otp(
     except HTTPException:
         raise
     except Exception as e:
+        print(f"Unexpected error in send_registration_otp: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to send OTP: {str(e)}")
 
 # Step 3: Verify OTP and complete registration

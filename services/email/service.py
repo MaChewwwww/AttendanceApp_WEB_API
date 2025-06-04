@@ -180,3 +180,16 @@ Best regards,
             error_msg = f"Failed to send registration OTP email: {str(e)}"
             print(error_msg)
             return False, error_msg
+
+    # Add placeholder methods for other OTP types to avoid errors
+    def send_password_reset_otp_email(self, to_email, first_name, otp_code):
+        """Placeholder for password reset OTP email"""
+        return self.send_registration_otp_email(to_email, first_name, otp_code)
+    
+    def send_email_verification_otp_email(self, to_email, first_name, otp_code):
+        """Placeholder for email verification OTP email"""
+        return self.send_registration_otp_email(to_email, first_name, otp_code)
+    
+    def send_generic_otp_email(self, to_email, first_name, otp_code, purpose):
+        """Placeholder for generic OTP email"""
+        return self.send_registration_otp_email(to_email, first_name, otp_code)
