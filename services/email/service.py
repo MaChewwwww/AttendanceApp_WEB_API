@@ -446,6 +446,99 @@ Best regards,
             print(error_msg)
             return False, error_msg
 
+    def send_password_reset_success_email(self, to_email, first_name):
+        """
+        Send password reset success email
+        
+        Args:
+            to_email (str): Recipient email
+            first_name (str): User's first name
+            
+        Returns:
+            tuple: (success, message)
+        """
+        try:
+            subject = f"{APP_NAME} - Password Reset Successful"
+            
+            # Plain text version
+            body_text = f"""
+Hello {first_name},
+
+Your password has been successfully reset for your {APP_NAME} account.
+
+If you did not make this change, please contact support immediately.
+
+You can now log in with your new password.
+
+Best regards,
+{APP_NAME} Team
+            """.strip()
+            
+            # HTML version
+            body_html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+        .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+        .header {{ background-color: #10B981; color: white; padding: 20px; text-align: center; }}
+        .content {{ padding: 20px; background-color: #f9f9f9; }}
+        .success-message {{ 
+            background-color: #d1fae5; 
+            border: 1px solid #10B981; 
+            padding: 15px; 
+            border-radius: 5px; 
+            margin: 15px 0;
+            text-align: center;
+        }}
+        .warning {{ 
+            background-color: #fef3cd; 
+            border: 1px solid #ffc107; 
+            padding: 10px; 
+            border-radius: 5px; 
+            margin: 15px 0;
+        }}
+        .footer {{ padding: 20px; text-align: center; color: #666; font-size: 12px; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>{APP_NAME}</h1>
+        </div>
+        <div class="content">
+            <h2>Password Reset Successful</h2>
+            <p>Hello {first_name},</p>
+            
+            <div class="success-message">
+                <strong>✅ Your password has been successfully reset!</strong>
+            </div>
+            
+            <p>Your {APP_NAME} account password has been updated. You can now log in with your new password.</p>
+            
+            <div class="warning">
+                <strong>Security Notice:</strong> If you did not make this change, please contact our support team immediately.
+            </div>
+            
+            <p>Thank you for using {APP_NAME}!</p>
+        </div>
+        <div class="footer">
+            <p>© 2024 {APP_NAME}. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>
+            """.strip()
+            
+            return self.send_email(to_email, subject, body_text, body_html)
+            
+        except Exception as e:
+            error_msg = f"Failed to send password reset success email: {str(e)}"
+            print(error_msg)
+            return False, error_msg
+
     # Add placeholder methods for other OTP types to avoid errors
     def send_email_verification_otp_email(self, to_email, first_name, otp_code):
         """Placeholder for email verification OTP email"""

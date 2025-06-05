@@ -546,21 +546,21 @@ def verify_password_reset_otp_endpoint(
     """
     return verify_password_reset_otp(request, db)
 
-# TODO: Step 4: Reset password with token
-# @app.post("/forgotPassword/reset-password", response_model=ResetPasswordResponse)
-# def reset_password_endpoint(
-#     request: ResetPasswordRequest,
-#     db: Session = Depends(get_db),
-#     api_key: str = Security(get_api_key)
-# ):
-#     """
-#     Reset password with reset token:
-#     1. Validate reset token
-#     2. Validate new password requirements
-#     3. Update user password
-#     4. Return success status
-#     """
-#     return reset_password(request, db)
+# Step 4: Reset password with token
+@app.post("/forgotPassword/reset-password", response_model=ResetPasswordResponse)
+def reset_password_endpoint(
+    request: ResetPasswordRequest,
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Reset password with reset token:
+    1. Validate reset token
+    2. Validate new password requirements
+    3. Update user password
+    4. Return success status
+    """
+    return reset_password(request, db)
 
 #------------------------------------------------------------
 # Legacy/Direct Login Methods (For Future Implementation)

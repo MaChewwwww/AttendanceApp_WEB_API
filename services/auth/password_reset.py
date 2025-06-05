@@ -371,7 +371,7 @@ def verify_password_reset_otp(request: PasswordResetOTPVerificationRequest, db: 
 
 def reset_password(request: ResetPasswordRequest, db: Session):
     """
-    Reset password with reset token (to be implemented)
+    Reset password with reset token
     
     Args:
         request: ResetPasswordRequest with reset token and new password
@@ -380,8 +380,114 @@ def reset_password(request: ResetPasswordRequest, db: Session):
     Returns:
         ResetPasswordResponse with success status
     """
-    # TODO: Implement password reset with reset token
-    return ResetPasswordResponse(
-        success=False,
-        message="Password reset not yet implemented"
-    )
+    try:
+        print(f"=== RESET PASSWORD REQUEST DEBUG ===")
+        print(f"Resetting password with token: {request.reset_token[:20]}...")
+        print("===================================")
+        
+        # 1. Validate reset token
+        from services.otp.service import OTPService
+        reset_tokens = getattr(OTPService, '_reset_tokens', {})
+        
+        if request.reset_token not in reset_tokens:
+            return ResetPasswordResponse(
+                success=False,
+                message="Invalid or expired reset token"
+            )
+        
+        token_data = reset_tokens[request.reset_token]
+        
+        # Check if token is expired
+        if datetime.now() > token_data["expires_at"]:
+            # Clean up expired token
+            del reset_tokens[request.reset_token]
+            return ResetPasswordResponse(
+                success=False,
+                message="Reset token has expired"
+            )
+        
+        # Check if token has already been used
+        if token_data["used"]:
+            return ResetPasswordResponse(
+                success=False,
+                message="Reset token has already been used"
+            )
+        
+        # 2. Validate new password requirements
+        password_errors = []
+        
+        if not request.new_password:
+            password_errors.append("Password is required")
+        elif len(request.new_password) < 6:
+            password_errors.append("Password must be at least 6 characters long")
+        else:
+            # Check password complexity
+            import re
+            if not re.search(r'[A-Z]', request.new_password):
+                password_errors.append("Password must contain at least one uppercase letter")
+            if not re.search(r'[a-z]', request.new_password):
+                password_errors.append("Password must contain at least one lowercase letter")
+            if not re.search(r'\d', request.new_password):
+                password_errors.append("Password must contain at least one number")
+            if not re.search(r'[!@#$%^&*(),.?":{}|<>]', request.new_password):
+                password_errors.append("Password must contain at least one special character")
+        
+        if password_errors:
+            return ResetPasswordResponse(
+                success=False,
+                message="Password validation failed: " + "; ".join(password_errors)
+            )
+        
+        # 3. Get user and update password
+        user_id = token_data["user_id"]
+        user = db.query(UserModel).filter(UserModel.id == user_id).first()
+        
+        if not user:
+            return ResetPasswordResponse(
+                success=False,
+                message="User not found"
+            )
+        
+        # Check if user is still active
+        if hasattr(user, 'isDeleted') and user.isDeleted:
+            return ResetPasswordResponse(
+                success=False,
+                message="Account not found"
+            )
+        
+        # Hash the new password
+        hashed_password = bcrypt.hashpw(request.new_password.encode('utf-8'), bcrypt.gensalt())
+        
+        # Update user password
+        user.password = hashed_password.decode('utf-8')
+        user.updated_at = datetime.now()
+        
+        db.commit()
+        
+        # 4. Mark token as used and clean up
+        token_data["used"] = True
+        
+        # Send password reset success email
+        try:
+            from services.email.service import EmailService
+            email_service = EmailService()
+            email_service.send_password_reset_success_email(user.email, user.first_name)
+        except Exception as email_error:
+            print(f"Failed to send password reset success email: {email_error}")
+            # Don't fail the password reset if email fails
+        
+        print(f"✅ Password reset successfully for user: {user.email} (ID: {user.id})")
+        
+        return ResetPasswordResponse(
+            success=True,
+            message="Password reset successfully. You can now log in with your new password."
+        )
+        
+    except Exception as e:
+        print(f"Unexpected error in reset_password: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return ResetPasswordResponse(
+            success=False,
+            message=f"Password reset failed: {str(e)}"
+        )
