@@ -352,11 +352,101 @@ Best regards,
             print(error_msg)
             return False, error_msg
 
-    # Add placeholder methods for other OTP types to avoid errors
     def send_password_reset_otp_email(self, to_email, first_name, otp_code):
-        """Placeholder for password reset OTP email"""
-        return self.send_registration_otp_email(to_email, first_name, otp_code)
-    
+        """
+        Send password reset OTP email
+        
+        Args:
+            to_email (str): Recipient email
+            first_name (str): User's first name
+            otp_code (str): 6-digit OTP code
+            
+        Returns:
+            tuple: (success, message)
+        """
+        try:
+            subject = f"{APP_NAME} - Password Reset Verification"
+            
+            # Plain text version
+            body_text = f"""
+Hello {first_name},
+
+Your password reset verification code is: {otp_code}
+
+This code will expire in 15 minutes.
+
+If you didn't request a password reset, please ignore this email.
+
+Best regards,
+{APP_NAME} Team
+            """.strip()
+            
+            # HTML version
+            body_html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+        .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+        .header {{ background-color: #EF4444; color: white; padding: 20px; text-align: center; }}
+        .content {{ padding: 20px; background-color: #f9f9f9; }}
+        .otp-code {{ 
+            display: inline-block; 
+            padding: 15px 25px; 
+            background-color: #fef2f2; 
+            border: 2px solid #EF4444;
+            color: #EF4444; 
+            font-size: 24px;
+            font-weight: bold;
+            letter-spacing: 3px;
+            border-radius: 8px; 
+            margin: 20px 0;
+        }}
+        .warning {{ 
+            background-color: #fef3cd; 
+            border: 1px solid #ffc107; 
+            padding: 10px; 
+            border-radius: 5px; 
+            margin: 15px 0;
+        }}
+        .footer {{ padding: 20px; text-align: center; color: #666; font-size: 12px; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>{APP_NAME}</h1>
+        </div>
+        <div class="content">
+            <h2>Password Reset Verification</h2>
+            <p>Hello {first_name},</p>
+            <p>Your password reset verification code is:</p>
+            <div style="text-align: center;">
+                <span class="otp-code">{otp_code}</span>
+            </div>
+            <p><strong>This code will expire in 15 minutes.</strong></p>
+            <div class="warning">
+                <strong>Security Notice:</strong> If you didn't request a password reset, please ignore this email. Your password will remain unchanged.
+            </div>
+        </div>
+        <div class="footer">
+            <p>© 2024 {APP_NAME}. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>
+            """.strip()
+            
+            return self.send_email(to_email, subject, body_text, body_html)
+            
+        except Exception as e:
+            error_msg = f"Failed to send password reset OTP email: {str(e)}"
+            print(error_msg)
+            return False, error_msg
+
+    # Add placeholder methods for other OTP types to avoid errors
     def send_email_verification_otp_email(self, to_email, first_name, otp_code):
         """Placeholder for email verification OTP email"""
         return self.send_registration_otp_email(to_email, first_name, otp_code)

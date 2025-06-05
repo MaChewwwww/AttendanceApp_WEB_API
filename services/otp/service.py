@@ -74,6 +74,12 @@ class OTPService:
                     first_name=first_name,
                     otp_code=otp_code
                 )
+            elif otp_type == "login":
+                success, message = email_service.send_login_otp_email(
+                    to_email=email,
+                    first_name=first_name,
+                    otp_code=otp_code
+                )
             elif otp_type == "email_verification":
                 success, message = email_service.send_email_verification_otp_email(
                     to_email=email,
@@ -125,6 +131,19 @@ class OTPService:
             otp_type="login",
             db=db,
             additional_data=login_data
+        )
+    
+    @staticmethod
+    def create_password_reset_otp(email: str, first_name: str, password_reset_data: dict, db: Session):
+        """
+        Create a password reset OTP and send it via email
+        """
+        return OTPService.create_otp(
+            email=email,
+            first_name=first_name,
+            otp_type="password_reset",
+            db=db,
+            additional_data=password_reset_data
         )
 
     @staticmethod

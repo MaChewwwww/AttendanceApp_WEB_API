@@ -29,6 +29,12 @@ from services.security.api_key import get_api_key
 from services.face.validator import validate_face_image
 from services.otp.service import OTPService
 from services.otp.cleanup import start_cleanup_service, stop_cleanup_service
+from services.auth.password_reset import (
+    validate_forgot_password_email, ForgotPasswordValidationRequest, ForgotPasswordValidationResponse,
+    send_forgot_password_otp, ForgotPasswordOTPRequest, ForgotPasswordOTPResponse,
+    verify_password_reset_otp, PasswordResetOTPVerificationRequest, PasswordResetOTPVerificationResponse,
+    reset_password, ResetPasswordRequest, ResetPasswordResponse
+)
 
 #------------------------------------------------------------
 # FastAPI Application Setup
@@ -483,6 +489,78 @@ def verify_login_otp_endpoint(
     4. Return user data and token
     """
     return verify_login_otp(request, db)
+
+#------------------------------------------------------------
+# STUDENT PASSWORD RESET ENDPOINTS
+#============================================================
+
+#------------------------------------------------------------
+# Multi-Step Password Reset Flow
+#------------------------------------------------------------
+
+# Step 1: Validate email for password reset
+@app.post("/forgotPassword/validate-email", response_model=ForgotPasswordValidationResponse)
+def validate_forgot_password_email_endpoint(
+    request: ForgotPasswordValidationRequest,
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Validate email for forgot password:
+    1. Check email format
+    2. Validate PUP domain
+    3. Check if email exists in database
+    4. Verify account is active and verified
+    5. Return validation result
+    """
+    return validate_forgot_password_email(request, db)
+
+# Step 2: Send OTP for password reset
+@app.post("/forgotPassword/send-reset-otp", response_model=ForgotPasswordOTPResponse)
+def send_forgot_password_otp_endpoint(
+    request: ForgotPasswordOTPRequest,
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Send OTP for password reset:
+    1. Validate email exists in database
+    2. Check if user is a valid verified student
+    3. Generate and send OTP to user's email
+    4. Return OTP ID for verification
+    """
+    return send_forgot_password_otp(request, db)
+
+# Step 3: Verify OTP for password reset
+@app.post("/forgotPassword/verify-otp", response_model=PasswordResetOTPVerificationResponse)
+def verify_password_reset_otp_endpoint(
+    request: PasswordResetOTPVerificationRequest,
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Verify OTP for password reset:
+    1. Verify the provided OTP code
+    2. Generate a reset token for password change
+    3. Return reset token for next step
+    """
+    return verify_password_reset_otp(request, db)
+
+# TODO: Step 4: Reset password with token
+# @app.post("/forgotPassword/reset-password", response_model=ResetPasswordResponse)
+# def reset_password_endpoint(
+#     request: ResetPasswordRequest,
+#     db: Session = Depends(get_db),
+#     api_key: str = Security(get_api_key)
+# ):
+#     """
+#     Reset password with reset token:
+#     1. Validate reset token
+#     2. Validate new password requirements
+#     3. Update user password
+#     4. Return success status
+#     """
+#     return reset_password(request, db)
 
 #------------------------------------------------------------
 # Legacy/Direct Login Methods (For Future Implementation)
