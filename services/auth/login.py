@@ -27,6 +27,18 @@ class LoginOTPResponse(BaseModel):
     message: str
     otp_id: Optional[int] = None
 
+class LoginOTPVerificationRequest(BaseModel):
+    """Request model for verifying login OTP"""
+    otp_id: int
+    otp_code: str
+
+class LoginOTPVerificationResponse(BaseModel):
+    """Response model for login OTP verification"""
+    success: bool
+    message: str
+    user: Optional[dict] = None
+    token: Optional[str] = None
+
 def validate_login_fields(request: LoginValidationRequest, db: Session):
     """
     Validate login fields format and requirements
@@ -229,17 +241,125 @@ def send_login_otp(request: LoginOTPRequest, db: Session):
             otp_id=None
         )
 
-def verify_login_otp_finalize(otp_id: int, otp_code: str, db: Session):
+def verify_login_otp(request: LoginOTPVerificationRequest, db: Session):
     """
-    Verify OTP for login and finalize authentication (to be implemented)
+    Verify OTP for login and finalize authentication
     
     Args:
-        otp_id: OTP request ID
-        otp_code: OTP code
+        request: LoginOTPVerificationRequest with OTP ID and code
         db: Database session
         
     Returns:
-        tuple: (success, message, user_data, token)
+        LoginOTPVerificationResponse with success status, user data, and token
     """
-    # TODO: Implement OTP verification for login with token generation
-    return False, "OTP verification not yet implemented", None, None
+    try:
+        print(f"=== VERIFY LOGIN OTP REQUEST DEBUG ===")
+        print(f"Verifying login OTP ID: {request.otp_id}, Code: {request.otp_code}")
+        print("=====================================")
+        
+        # Verify OTP and get login data
+        from services.otp.service import OTPService
+        
+        is_valid, message_or_data, login_data = OTPService.verify_otp(
+            otp_id=request.otp_id,
+            otp_code=request.otp_code,
+            db=db
+        )
+        
+        if not is_valid:
+            print(f"OTP verification failed: {message_or_data}")
+            return LoginOTPVerificationResponse(
+                success=False,
+                message=message_or_data,
+                user=None,
+                token=None
+            )
+        
+        if not login_data:
+            print("No login data found")
+            return LoginOTPVerificationResponse(
+                success=False,
+                message="Login data not found",
+                user=None,
+                token=None
+            )
+        
+        print(f"OTP verified successfully, proceeding with login")
+        
+        # Get user information from the database
+        user_id = login_data.get('user_id')
+        if not user_id:
+            return LoginOTPVerificationResponse(
+                success=False,
+                message="Invalid login data",
+                user=None,
+                token=None
+            )
+        
+        # Fetch fresh user data from database
+        user = db.query(UserModel).filter(UserModel.id == user_id).first()
+        if not user:
+            return LoginOTPVerificationResponse(
+                success=False,
+                message="User not found",
+                user=None,
+                token=None
+            )
+        
+        # Check if user is still active
+        if hasattr(user, 'isDeleted') and user.isDeleted:
+            return LoginOTPVerificationResponse(
+                success=False,
+                message="Account not found",
+                user=None,
+                token=None
+            )
+        
+        # Get student information
+        student = db.query(StudentModel).filter(StudentModel.user_id == user.id).first()
+        if not student:
+            return LoginOTPVerificationResponse(
+                success=False,
+                message="Student account not found",
+                user=None,
+                token=None
+            )
+        
+        # Prepare user data for response
+        user_data = {
+            "user_id": user.id,
+            "name": f"{user.first_name} {user.last_name}",
+            "email": user.email,
+            "role": user.role,
+            "student_number": student.student_number,
+            "verified": getattr(user, 'verified', 0),
+            "status_id": getattr(user, 'status_id', 1)
+        }
+        
+        # Add middle name if it exists
+        if hasattr(user, 'middle_name') and user.middle_name:
+            user_data["middle_name"] = user.middle_name
+        
+        # TODO: Generate authentication token (for now, we'll use a simple placeholder)
+        # In a real implementation, you would generate a JWT token here
+        auth_token = f"temp_token_{user.id}_{datetime.now().timestamp()}"
+        
+        print(f"✅ Login successful for: {user.email} (ID: {user.id})")
+        
+        return LoginOTPVerificationResponse(
+            success=True,
+            message="Login successful",
+            user=user_data,
+            token=auth_token
+        )
+        
+    except Exception as e:
+        print(f"Unexpected error in verify_login_otp: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return LoginOTPVerificationResponse(
+            success=False,
+            message=f"Login verification failed: {str(e)}",
+            user=None,
+            token=None
+        )

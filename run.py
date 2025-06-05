@@ -28,7 +28,7 @@ if __name__ == "__main__":
     print(f"✓ Login Flow:")
     print(f"  • Step 1: http://{host}:{port}/loginStudent/validate-fields")
     print(f"  • Step 2: http://{host}:{port}/loginStudent/send-login-otp")
-    print(f"  • Step 3: http://{host}:{port}/loginStudent/verify-login-otp-finalize (TODO)")
+    print(f"  • Step 3: http://{host}:{port}/loginStudent/verify-login-otp")
     print(f"🧹 OTP Cleanup: Automatic every 15 minutes")
     print(f"📁 Cleanup logs: logs/otp_cleanup.log")
     

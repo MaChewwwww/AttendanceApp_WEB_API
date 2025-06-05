@@ -22,7 +22,8 @@ from services.auth.register import (
 )
 from services.auth.login import (
     validate_login_fields, LoginValidationRequest, LoginValidationResponse,
-    send_login_otp, LoginOTPRequest, LoginOTPResponse
+    send_login_otp, LoginOTPRequest, LoginOTPResponse,
+    verify_login_otp, LoginOTPVerificationRequest, LoginOTPVerificationResponse
 )
 from services.security.api_key import get_api_key
 from services.face.validator import validate_face_image
@@ -467,16 +468,21 @@ def send_login_otp_endpoint(
     """
     return send_login_otp(request, db)
 
-# TODO: Step 3: Verify OTP and finalize login
-# @app.post("/loginStudent/verify-login-otp-finalize")
-# def verify_login_otp_finalize_endpoint():
-#     """
-#     Verify OTP and complete login:
-#     1. Verify the provided OTP code
-#     2. Generate authentication token
-#     3. Return user data and token
-#     """
-#     pass
+# Step 3: Verify OTP and finalize login
+@app.post("/loginStudent/verify-login-otp", response_model=LoginOTPVerificationResponse)
+def verify_login_otp_endpoint(
+    request: LoginOTPVerificationRequest,
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Verify OTP and complete login:
+    1. Verify the provided OTP code
+    2. Authenticate the user
+    3. Generate authentication token
+    4. Return user data and token
+    """
+    return verify_login_otp(request, db)
 
 #------------------------------------------------------------
 # Legacy/Direct Login Methods (For Future Implementation)
