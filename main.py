@@ -21,7 +21,8 @@ from services.auth.register import (
     validate_registration_fields, RegistrationValidationRequest, RegistrationValidationResponse
 )
 from services.auth.login import (
-    validate_login_fields, LoginValidationRequest, LoginValidationResponse
+    validate_login_fields, LoginValidationRequest, LoginValidationResponse,
+    send_login_otp, LoginOTPRequest, LoginOTPResponse
 )
 from services.security.api_key import get_api_key
 from services.face.validator import validate_face_image
@@ -450,15 +451,21 @@ def validate_login_fields_endpoint(
     """
     return validate_login_fields(request, db)
 
-# TODO: Step 2: Send OTP for login
-# @app.post("/loginStudent/send-login-otp")
-# def send_login_otp_endpoint():
-#     """
-#     Send OTP for login:
-#     1. Generate and send OTP to user's email
-#     2. Return OTP ID for verification
-#     """
-#     pass
+# Step 2: Send OTP for login
+@app.post("/loginStudent/send-login-otp", response_model=LoginOTPResponse)
+def send_login_otp_endpoint(
+    request: LoginOTPRequest,
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Send OTP for login:
+    1. Validate email exists in database
+    2. Check if user is a valid student
+    3. Generate and send OTP to user's email
+    4. Return OTP ID for verification
+    """
+    return send_login_otp(request, db)
 
 # TODO: Step 3: Verify OTP and finalize login
 # @app.post("/loginStudent/verify-login-otp-finalize")

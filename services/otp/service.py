@@ -115,6 +115,19 @@ class OTPService:
         )
     
     @staticmethod
+    def create_login_otp(email: str, first_name: str, login_data: dict, db: Session):
+        """
+        Create a login OTP and send it via email
+        """
+        return OTPService.create_otp(
+            email=email,
+            first_name=first_name,
+            otp_type="login",
+            db=db,
+            additional_data=login_data
+        )
+
+    @staticmethod
     def verify_otp(otp_id: int, otp_code: str, db: Session):
         """
         Verify an OTP code and return stored registration data

@@ -267,6 +267,91 @@ AttendanceApp Team
             print(error_msg)
             return False, error_msg
 
+    def send_login_otp_email(self, to_email, first_name, otp_code):
+        """
+        Send login OTP email
+        
+        Args:
+            to_email (str): Recipient email
+            first_name (str): User's first name
+            otp_code (str): 6-digit OTP code
+            
+        Returns:
+            tuple: (success, message)
+        """
+        try:
+            subject = f"{APP_NAME} - Login Verification"
+            
+            # Plain text version
+            body_text = f"""
+Hello {first_name},
+
+Your login verification code is: {otp_code}
+
+This code will expire in 15 minutes.
+
+If you didn't try to log in, please ignore this email.
+
+Best regards,
+{APP_NAME} Team
+            """.strip()
+            
+            # HTML version
+            body_html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+        .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+        .header {{ background-color: #10B981; color: white; padding: 20px; text-align: center; }}
+        .content {{ padding: 20px; background-color: #f9f9f9; }}
+        .otp-code {{ 
+            display: inline-block; 
+            padding: 15px 25px; 
+            background-color: #f0fdf4; 
+            border: 2px solid #10B981;
+            color: #10B981; 
+            font-size: 24px;
+            font-weight: bold;
+            letter-spacing: 3px;
+            border-radius: 8px; 
+            margin: 20px 0;
+        }}
+        .footer {{ padding: 20px; text-align: center; color: #666; font-size: 12px; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>{APP_NAME}</h1>
+        </div>
+        <div class="content">
+            <h2>Login Verification</h2>
+            <p>Hello {first_name},</p>
+            <p>Your login verification code is:</p>
+            <div style="text-align: center;">
+                <span class="otp-code">{otp_code}</span>
+            </div>
+            <p><strong>This code will expire in 15 minutes.</strong></p>
+            <p>If you didn't try to log in, please ignore this email.</p>
+        </div>
+        <div class="footer">
+            <p>© 2024 {APP_NAME}. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>
+            """.strip()
+            
+            return self.send_email(to_email, subject, body_text, body_html)
+            
+        except Exception as e:
+            error_msg = f"Failed to send login OTP email: {str(e)}"
+            print(error_msg)
+            return False, error_msg
+
     # Add placeholder methods for other OTP types to avoid errors
     def send_password_reset_otp_email(self, to_email, first_name, otp_code):
         """Placeholder for password reset OTP email"""

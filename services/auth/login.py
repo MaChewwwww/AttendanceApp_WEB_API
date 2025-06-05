@@ -17,6 +17,16 @@ class LoginValidationResponse(BaseModel):
     message: str
     errors: Optional[list] = None
 
+class LoginOTPRequest(BaseModel):
+    """Request model for sending login OTP"""
+    email: str
+
+class LoginOTPResponse(BaseModel):
+    """Response model for login OTP"""
+    success: bool
+    message: str
+    otp_id: Optional[int] = None
+
 def validate_login_fields(request: LoginValidationRequest, db: Session):
     """
     Validate login fields format and requirements
@@ -115,20 +125,109 @@ def validate_login_fields(request: LoginValidationRequest, db: Session):
             errors=[f"Server error: {str(e)}"]
         )
 
-# Placeholder for future login methods
-def send_login_otp(email: str, db: Session):
+def send_login_otp(request: LoginOTPRequest, db: Session):
     """
-    Send OTP for login (to be implemented)
+    Send OTP for login
     
     Args:
-        email: User email
+        request: LoginOTPRequest with email
         db: Database session
         
     Returns:
-        tuple: (success, message, otp_id)
+        LoginOTPResponse with success status and OTP ID
     """
-    # TODO: Implement OTP-based login
-    return False, "OTP login not yet implemented", None
+    try:
+        import re
+        
+        print(f"=== SEND LOGIN OTP REQUEST DEBUG ===")
+        print(f"Sending login OTP to: {request.email}")
+        print("===================================")
+        
+        # 1. Basic email validation
+        if not request.email or not request.email.strip():
+            return LoginOTPResponse(
+                success=False,
+                message="Email is required",
+                otp_id=None
+            )
+        
+        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(email_pattern, request.email):
+            return LoginOTPResponse(
+                success=False,
+                message="Invalid email format",
+                otp_id=None
+            )
+        
+        # 2. Check if user exists and is a student
+        user = db.query(UserModel).filter(UserModel.email == request.email).first()
+        
+        if not user:
+            return LoginOTPResponse(
+                success=False,
+                message="Email not found",
+                otp_id=None
+            )
+        
+        # Check if user is deleted
+        if hasattr(user, 'isDeleted') and user.isDeleted:
+            return LoginOTPResponse(
+                success=False,
+                message="Account not found",
+                otp_id=None
+            )
+        
+        # Check if user is a student
+        student = db.query(StudentModel).filter(StudentModel.user_id == user.id).first()
+        if not student:
+            return LoginOTPResponse(
+                success=False,
+                message="Student account not found",
+                otp_id=None
+            )
+        
+        # 3. Create and send OTP for login
+        from services.otp.service import OTPService
+        
+        # Prepare login data to store with OTP
+        login_data = {
+            "user_id": user.id,
+            "email": user.email,
+            "first_name": user.first_name,
+            "student_number": student.student_number
+        }
+        
+        success, message, otp_id = OTPService.create_login_otp(
+            email=user.email,
+            first_name=user.first_name,
+            login_data=login_data,
+            db=db
+        )
+        
+        if not success:
+            return LoginOTPResponse(
+                success=False,
+                message=message,
+                otp_id=None
+            )
+        
+        print(f"✅ Login OTP sent successfully to {user.email} (OTP ID: {otp_id})")
+        
+        return LoginOTPResponse(
+            success=True,
+            message="Login OTP sent successfully. Please check your email for the verification code.",
+            otp_id=otp_id
+        )
+        
+    except Exception as e:
+        print(f"Unexpected error in send_login_otp: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return LoginOTPResponse(
+            success=False,
+            message=f"Failed to send login OTP: {str(e)}",
+            otp_id=None
+        )
 
 def verify_login_otp_finalize(otp_id: int, otp_code: str, db: Session):
     """
