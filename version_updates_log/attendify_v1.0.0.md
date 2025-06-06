@@ -65,3 +65,39 @@
 - **Environment Flexibility**: Easy configuration via environment variables
 
 ### 🛠️ **API Endpoints Summary**
+```
+GET /health - Health check endpoint
+POST /registerStudent - Direct student registration (legacy)
+POST /validate-face - Face image validation
+POST /register-student-with-face - Registration with face validation
+POST /register/init - Initialize OTP-based registration
+POST /register/verify - Complete registration with OTP verification
+```
+
+### 🔧 **System Requirements**
+- **Python 3.8+** with FastAPI framework
+- **OpenCV** for face detection capabilities
+- **SQLite Database** shared with desktop application
+- **Gmail SMTP** for email delivery
+- **Environment Configuration** via .env files
+
+### 🎯 **Performance Features**
+- **Asynchronous Processing** with FastAPI
+- **Efficient Image Processing** with OpenCV optimizations
+- **Connection Pooling** for database operations
+- **Memory Management** with automatic cleanup
+- **Error Recovery** with transaction rollbacks
+
+---
+
+## 🔄 **Migration Notes**
+- Initial release - no migration required
+- Desktop application database compatibility maintained
+- All endpoints are new additions to the system
+- No breaking changes to existing desktop functionality
+
+## 🚀 **Next Version Preview**
+- Password reset and recovery system
+- Enhanced security features
+- Additional authentication methods
+- Extended email template system

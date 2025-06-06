@@ -52,3 +52,6 @@ Thumbs.db
 # Upload directories
 uploads/
 temp/
+
+# Don't ignore version logs
+!version_updates_log/
