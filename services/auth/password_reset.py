@@ -455,14 +455,64 @@ def reset_password(request: ResetPasswordRequest, db: Session):
                 message="Account not found"
             )
         
+        # Debug: Check what password field exists on the User model
+        print(f"User model attributes: {[attr for attr in dir(user) if not attr.startswith('_')]}")
+        
+        # Find the correct password field
+        password_field = None
+        possible_password_fields = ['password', 'hashed_password', 'password_hash', 'pwd', 'user_password']
+        
+        for field in possible_password_fields:
+            if hasattr(user, field):
+                password_field = field
+                break
+        
+        if not password_field:
+            print("❌ No password field found on User model")
+            return ResetPasswordResponse(
+                success=False,
+                message="Password field not found on user model"
+            )
+        
+        # Get current password hash for comparison
+        old_password_hash = getattr(user, password_field)
+        print(f"Found password field: {password_field}")
+        print(f"Old password hash: {old_password_hash[:20] if old_password_hash else 'No password set'}...")
+        
         # Hash the new password
         hashed_password = bcrypt.hashpw(request.new_password.encode('utf-8'), bcrypt.gensalt())
+        hashed_password_str = hashed_password.decode('utf-8')
+        print(f"New password hash: {hashed_password_str[:20]}...")
         
-        # Update user password
-        user.password = hashed_password.decode('utf-8')
-        user.updated_at = datetime.now()
-        
-        db.commit()
+        try:
+            # Update user password using the correct field
+            setattr(user, password_field, hashed_password_str)
+            user.updated_at = datetime.now()
+            
+            # Explicitly commit the transaction
+            db.commit()
+            
+            # Refresh the user object to get updated data from database
+            db.refresh(user)
+            
+            # Verify the password was actually updated
+            updated_user = db.query(UserModel).filter(UserModel.id == user_id).first()
+            if updated_user and getattr(updated_user, password_field) == hashed_password_str:
+                print(f"✅ Password hash verified in database: {getattr(updated_user, password_field)[:20]}...")
+            else:
+                print(f"❌ Password hash mismatch in database!")
+                print(f"Expected: {hashed_password_str[:20]}...")
+                actual_hash = getattr(updated_user, password_field) if updated_user else 'User not found'
+                print(f"Actual: {actual_hash[:20] if actual_hash else 'No password'}...")
+                raise Exception("Password update verification failed")
+                
+        except Exception as db_error:
+            print(f"Database error during password update: {db_error}")
+            db.rollback()
+            return ResetPasswordResponse(
+                success=False,
+                message=f"Failed to update password: {str(db_error)}"
+            )
         
         # 4. Mark token as used and clean up
         token_data["used"] = True
