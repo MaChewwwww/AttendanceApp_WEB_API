@@ -61,10 +61,6 @@ def validate_forgot_password_email(request: ForgotPasswordValidationRequest, db:
     try:
         import re
         
-        print(f"=== FORGOT PASSWORD VALIDATION REQUEST DEBUG ===")
-        print(f"Validating email for forgot password: {request.email}")
-        print("===============================================")
-        
         errors = []
         
         # 1. Email validation
@@ -103,19 +99,16 @@ def validate_forgot_password_email(request: ForgotPasswordValidationRequest, db:
                                 errors.append("Account is not verified. Please complete registration first.")
                                 
             except Exception as db_error:
-                print(f"Database validation error: {db_error}")
                 errors.append("Database error during validation.")
         
         # Return validation result
         if errors:
-            print(f"Forgot password validation failed with errors: {errors}")
             return ForgotPasswordValidationResponse(
                 is_valid=False,
                 message="Validation failed",
                 errors=errors
             )
         
-        print("Email is valid for password reset")
         return ForgotPasswordValidationResponse(
             is_valid=True,
             message="Email is valid for password reset",
@@ -123,7 +116,6 @@ def validate_forgot_password_email(request: ForgotPasswordValidationRequest, db:
         )
         
     except Exception as e:
-        print(f"Unexpected error in forgot password validation: {e}")
         return ForgotPasswordValidationResponse(
             is_valid=False,
             message=f"Validation failed: {str(e)}",
@@ -143,10 +135,6 @@ def send_forgot_password_otp(request: ForgotPasswordOTPRequest, db: Session):
     """
     try:
         import re
-        
-        print(f"=== SEND FORGOT PASSWORD OTP REQUEST DEBUG ===")
-        print(f"Sending forgot password OTP to: {request.email}")
-        print("=============================================")
         
         # 1. Basic email validation
         if not request.email or not request.email.strip():
@@ -232,8 +220,6 @@ def send_forgot_password_otp(request: ForgotPasswordOTPRequest, db: Session):
                 otp_id=None
             )
         
-        print(f"✅ Forgot password OTP sent successfully to {user.email} (OTP ID: {otp_id})")
-        
         return ForgotPasswordOTPResponse(
             success=True,
             message="Password reset OTP sent successfully. Please check your email for the verification code.",
@@ -241,9 +227,6 @@ def send_forgot_password_otp(request: ForgotPasswordOTPRequest, db: Session):
         )
         
     except Exception as e:
-        print(f"Unexpected error in send_forgot_password_otp: {str(e)}")
-        import traceback
-        traceback.print_exc()
         return ForgotPasswordOTPResponse(
             success=False,
             message=f"Failed to send password reset OTP: {str(e)}",
@@ -262,10 +245,6 @@ def verify_password_reset_otp(request: PasswordResetOTPVerificationRequest, db: 
         PasswordResetOTPVerificationResponse with success status and reset token
     """
     try:
-        print(f"=== VERIFY PASSWORD RESET OTP REQUEST DEBUG ===")
-        print(f"Verifying password reset OTP ID: {request.otp_id}, Code: {request.otp_code}")
-        print("==============================================")
-        
         # Verify OTP and get password reset data
         from services.otp.service import OTPService
         
@@ -276,7 +255,6 @@ def verify_password_reset_otp(request: PasswordResetOTPVerificationRequest, db: 
         )
         
         if not is_valid:
-            print(f"OTP verification failed: {message_or_data}")
             return PasswordResetOTPVerificationResponse(
                 success=False,
                 message=message_or_data,
@@ -284,14 +262,11 @@ def verify_password_reset_otp(request: PasswordResetOTPVerificationRequest, db: 
             )
         
         if not password_reset_data:
-            print("No password reset data found")
             return PasswordResetOTPVerificationResponse(
                 success=False,
                 message="Password reset data not found",
                 reset_token=None
             )
-        
-        print(f"OTP verified successfully, generating reset token")
         
         # Get user information from the stored data
         user_id = password_reset_data.get('user_id')
@@ -335,8 +310,7 @@ def verify_password_reset_otp(request: PasswordResetOTPVerificationRequest, db: 
         import time
         reset_token = f"reset_{user.id}_{int(time.time())}_{secrets.token_urlsafe(32)}"
         
-        # Store the reset token temporarily (using the same temp storage approach)
-        # In a production environment, you might want to use Redis or a dedicated table
+        # Store the reset token temporarily
         from services.otp.service import OTPService
         OTPService._reset_tokens = getattr(OTPService, '_reset_tokens', {})
         
@@ -351,8 +325,6 @@ def verify_password_reset_otp(request: PasswordResetOTPVerificationRequest, db: 
             "used": False
         }
         
-        print(f"✅ Password reset token generated for: {user.email} (ID: {user.id})")
-        
         return PasswordResetOTPVerificationResponse(
             success=True,
             message="OTP verified successfully. You can now reset your password.",
@@ -360,9 +332,6 @@ def verify_password_reset_otp(request: PasswordResetOTPVerificationRequest, db: 
         )
         
     except Exception as e:
-        print(f"Unexpected error in verify_password_reset_otp: {str(e)}")
-        import traceback
-        traceback.print_exc()
         return PasswordResetOTPVerificationResponse(
             success=False,
             message=f"Password reset OTP verification failed: {str(e)}",
@@ -381,10 +350,6 @@ def reset_password(request: ResetPasswordRequest, db: Session):
         ResetPasswordResponse with success status
     """
     try:
-        print(f"=== RESET PASSWORD REQUEST DEBUG ===")
-        print(f"Resetting password with token: {request.reset_token[:20]}...")
-        print("===================================")
-        
         # 1. Validate reset token
         from services.otp.service import OTPService
         reset_tokens = getattr(OTPService, '_reset_tokens', {})
@@ -455,9 +420,6 @@ def reset_password(request: ResetPasswordRequest, db: Session):
                 message="Account not found"
             )
         
-        # Debug: Check what password field exists on the User model
-        print(f"User model attributes: {[attr for attr in dir(user) if not attr.startswith('_')]}")
-        
         # Find the correct password field
         password_field = None
         possible_password_fields = ['password', 'hashed_password', 'password_hash', 'pwd', 'user_password']
@@ -468,21 +430,14 @@ def reset_password(request: ResetPasswordRequest, db: Session):
                 break
         
         if not password_field:
-            print("❌ No password field found on User model")
             return ResetPasswordResponse(
                 success=False,
                 message="Password field not found on user model"
             )
         
-        # Get current password hash for comparison
-        old_password_hash = getattr(user, password_field)
-        print(f"Found password field: {password_field}")
-        print(f"Old password hash: {old_password_hash[:20] if old_password_hash else 'No password set'}...")
-        
         # Hash the new password
         hashed_password = bcrypt.hashpw(request.new_password.encode('utf-8'), bcrypt.gensalt())
         hashed_password_str = hashed_password.decode('utf-8')
-        print(f"New password hash: {hashed_password_str[:20]}...")
         
         try:
             # Update user password using the correct field
@@ -497,17 +452,10 @@ def reset_password(request: ResetPasswordRequest, db: Session):
             
             # Verify the password was actually updated
             updated_user = db.query(UserModel).filter(UserModel.id == user_id).first()
-            if updated_user and getattr(updated_user, password_field) == hashed_password_str:
-                print(f"✅ Password hash verified in database: {getattr(updated_user, password_field)[:20]}...")
-            else:
-                print(f"❌ Password hash mismatch in database!")
-                print(f"Expected: {hashed_password_str[:20]}...")
-                actual_hash = getattr(updated_user, password_field) if updated_user else 'User not found'
-                print(f"Actual: {actual_hash[:20] if actual_hash else 'No password'}...")
+            if not (updated_user and getattr(updated_user, password_field) == hashed_password_str):
                 raise Exception("Password update verification failed")
                 
         except Exception as db_error:
-            print(f"Database error during password update: {db_error}")
             db.rollback()
             return ResetPasswordResponse(
                 success=False,
@@ -523,10 +471,8 @@ def reset_password(request: ResetPasswordRequest, db: Session):
             email_service = EmailService()
             email_service.send_password_reset_success_email(user.email, user.first_name)
         except Exception as email_error:
-            print(f"Failed to send password reset success email: {email_error}")
             # Don't fail the password reset if email fails
-        
-        print(f"✅ Password reset successfully for user: {user.email} (ID: {user.id})")
+            pass
         
         return ResetPasswordResponse(
             success=True,
@@ -534,9 +480,6 @@ def reset_password(request: ResetPasswordRequest, db: Session):
         )
         
     except Exception as e:
-        print(f"Unexpected error in reset_password: {str(e)}")
-        import traceback
-        traceback.print_exc()
         return ResetPasswordResponse(
             success=False,
             message=f"Password reset failed: {str(e)}"
