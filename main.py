@@ -16,7 +16,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 # Import database components
 from db import get_db, engine
-from models import Base, User, Student, OTP_Request
+from models import Base, User, Student, OTP_Request, Program, Section, Course, Assigned_Course
 from services.auth.register import (
     register_student, RegisterRequest,
     validate_registration_fields, RegistrationValidationRequest, RegistrationValidationResponse
@@ -42,6 +42,7 @@ from services.auth.onboarding import (
 from services.auth.jwt_service import (
     JWTService, get_current_user, get_current_student
 )
+from services.database import db_query
 
 #------------------------------------------------------------
 # FastAPI Application Setup
@@ -179,6 +180,14 @@ class LoginValidationResponse(BaseModel):
 class AvailableSectionsResponse(BaseModel):
     """Response model for available sections"""
     sections: list
+
+class AvailableProgramsResponse(BaseModel):
+    """Response model for available programs"""
+    programs: list
+
+class AvailableCoursesResponse(BaseModel):
+    """Response model for available assigned courses"""
+    courses: list
 
 #------------------------------------------------------------
 # Health Check
@@ -612,7 +621,7 @@ def get_jwt_student_dependency():
 # Student Onboarding Flow
 #------------------------------------------------------------
 
-# Check student onboarding status (using proper JWT dependency)
+# Step 1 : Check student onboarding status (using proper JWT dependency)
 @app.get("/student/onboarding/status", response_model=OnboardingCheckResponse)
 def check_student_onboarding_status(
     current_student: Dict[str, Any] = Depends(get_jwt_student_dependency()),
@@ -658,3 +667,74 @@ def check_student_onboarding_status(
         student_info=student_info
     )
 
+# Step 2 : Getting all the available programs where isDeleted = 0
+@app.get("/student/onboarding/programs", response_model=AvailableProgramsResponse)
+def get_available_programs(
+    current_student: Dict[str, Any] = Depends(get_jwt_student_dependency()),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Get list of all available programs using JWT authentication:
+    1. Validate JWT token automatically
+    2. Return list of active programs (isDeleted = 0)
+    
+    Requires: Authorization header with Bearer JWT token
+    """
+    try:
+        programs = db_query.get_active_programs(db)
+        return AvailableProgramsResponse(programs=programs)
+        
+    except Exception as e:
+        print(f"Error getting available programs: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching programs: {str(e)}")
+
+# Step 3a: Getting all the available sections using program_id where isDeleted = 0
+@app.get("/student/onboarding/sections/{program_id}", response_model=AvailableSectionsResponse)
+def get_available_sections_by_program(
+    program_id: int,
+    current_student: Dict[str, Any] = Depends(get_jwt_student_dependency()),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Get list of available sections for a specific program using JWT authentication:
+    1. Validate JWT token automatically
+    2. Return list of active sections for the given program_id (isDeleted = 0)
+    
+    Requires: Authorization header with Bearer JWT token
+    """
+    try:
+        sections = db_query.get_sections_by_program(db, program_id)
+        return AvailableSectionsResponse(sections=sections)
+        
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        print(f"Error getting available sections for program {program_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching sections: {str(e)}")
+
+# Step 3b: Getting all the assigned_courses using section_id where isDeleted = 0
+@app.get("/student/onboarding/courses/{section_id}", response_model=AvailableCoursesResponse)
+def get_available_assigned_courses_by_section(
+    section_id: int,
+    current_student: Dict[str, Any] = Depends(get_jwt_student_dependency()),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Get list of assigned courses for a specific section using JWT authentication:
+    1. Validate JWT token automatically
+    2. Return list of active assigned courses for the given section_id (isDeleted = 0)
+    
+    Requires: Authorization header with Bearer JWT token
+    """
+    try:
+        courses = db_query.get_assigned_courses_by_section(db, section_id)
+        return AvailableCoursesResponse(courses=courses)
+        
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        print(f"Error getting assigned courses for section {section_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching assigned courses: {str(e)}")
