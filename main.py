@@ -16,7 +16,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 # Import database components
 from db import get_db, engine
-from models import Base, User, Student, OTP_Request, Program, Section, Course, Assigned_Course
+from models import Base, User, Student, OTP_Request, Program, Section, Course, Assigned_Course, Assigned_Course_Approval
+
 from services.auth.register import (
     register_student, RegisterRequest,
     validate_registration_fields, RegistrationValidationRequest, RegistrationValidationResponse
@@ -43,6 +44,7 @@ from services.auth.jwt_service import (
     JWTService, get_current_user, get_current_student
 )
 from services.database import db_query
+from services.database.create_db import assign_student_to_section
 
 #------------------------------------------------------------
 # FastAPI Application Setup
@@ -188,6 +190,20 @@ class AvailableProgramsResponse(BaseModel):
 class AvailableCoursesResponse(BaseModel):
     """Response model for available assigned courses"""
     courses: list
+
+class SectionAssignmentRequest(BaseModel):
+    """Request model for assigning student to section"""
+    section_id: int
+
+class SectionAssignmentResponse(BaseModel):
+    """Response model for section assignment"""
+    success: bool
+    message: str
+    student_id: Optional[int] = None
+    section_id: Optional[int] = None
+    section_name: Optional[str] = None
+    assigned_courses_count: Optional[int] = None
+    approval_records_created: Optional[int] = None
 
 #------------------------------------------------------------
 # Health Check
@@ -738,3 +754,30 @@ def get_available_assigned_courses_by_section(
     except Exception as e:
         print(f"Error getting assigned courses for section {section_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching assigned courses: {str(e)}")
+    
+# Step 4: Assign student to Section and create Assigned_Course_Approval
+@app.post("/student/onboarding/assign-section", response_model=SectionAssignmentResponse)
+def assign_student_to_section_endpoint(
+    request: SectionAssignmentRequest,
+    current_student: Dict[str, Any] = Depends(get_jwt_student_dependency()),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Assign student to a section and create Assigned_Course_Approval records:
+    1. Validate JWT token automatically
+    2. Verify section exists and is active
+    3. Update student's section assignment
+    4. Create pending approval records for all assigned courses in that section
+    
+    Requires: Authorization header with Bearer JWT token
+    """
+    try:
+        result = assign_student_to_section(db, current_student, request.section_id)
+        return SectionAssignmentResponse(**result)
+        
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        print(f"Error assigning student to section: {e}")
+        raise HTTPException(status_code=500, detail=f"Error assigning section: {str(e)}")

@@ -4,7 +4,7 @@ Contains all database operations for different modules
 """
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
-from models import Program, Section, Course, Assigned_Course, User
+from models import Program, Section, Course, Assigned_Course, User, Student, Assigned_Course_Approval
 
 class DatabaseQueryService:
     """Service class for handling all database queries"""
@@ -317,6 +317,127 @@ class DatabaseQueryService:
             
         except Exception as e:
             print(f"Error getting assigned course {assigned_course_id}: {e}")
+            raise
+    
+    @staticmethod
+    def assign_student_to_section(db: Session, student_id: int, section_id: int) -> Dict[str, Any]:
+        """
+        Assign a student to a section and create Assigned_Course_Approval records
+        
+        Args:
+            db: Database session
+            student_id: ID of the student (from students table)
+            section_id: ID of the section
+            
+        Returns:
+            Dictionary with assignment result
+            
+        Raises:
+            ValueError: If student or section not found
+        """
+        try:
+            # Verify student exists and is active
+            student = db.query(Student).join(User).filter(
+                Student.id == student_id,
+                User.isDeleted == 0
+            ).first()
+            
+            if not student:
+                raise ValueError("Student not found or has been deleted")
+            
+            # Verify section exists and is active
+            section = db.query(Section).filter(
+                Section.id == section_id,
+                Section.isDeleted == 0
+            ).first()
+            
+            if not section:
+                raise ValueError("Section not found or has been deleted")
+            
+            # Update student's section
+            student.section = section_id
+            
+            # Get all assigned courses for this section
+            assigned_courses = db.query(Assigned_Course).filter(
+                Assigned_Course.section_id == section_id,
+                Assigned_Course.isDeleted == 0
+            ).all()
+            
+            # Create Assigned_Course_Approval records for each course
+            approval_records = []
+            for assigned_course in assigned_courses:
+                # Check if approval already exists
+                existing_approval = db.query(Assigned_Course_Approval).filter(
+                    Assigned_Course_Approval.assigned_course_id == assigned_course.id,
+                    Assigned_Course_Approval.student_id == student_id
+                ).first()
+                
+                if not existing_approval:
+                    approval = Assigned_Course_Approval(
+                        assigned_course_id=assigned_course.id,
+                        student_id=student_id,
+                        status="pending"
+                    )
+                    db.add(approval)
+                    approval_records.append({
+                        "assigned_course_id": assigned_course.id,
+                        "status": "pending"
+                    })
+            
+            # Commit the transaction
+            db.commit()
+            db.refresh(student)
+            
+            return {
+                "success": True,
+                "message": f"Student successfully assigned to section {section.name}",
+                "student_id": student_id,
+                "section_id": section_id,
+                "section_name": section.name,
+                "assigned_courses_count": len(assigned_courses),
+                "approval_records_created": len(approval_records)
+            }
+            
+        except Exception as e:
+            db.rollback()
+            print(f"Error assigning student to section: {e}")
+            raise
+    
+    @staticmethod
+    def get_student_by_user_id(db: Session, user_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Get student record by user ID
+        
+        Args:
+            db: Database session
+            user_id: ID of the user
+            
+        Returns:
+            Student dictionary or None if not found
+        """
+        try:
+            result = db.query(Student, User).join(
+                User, Student.user_id == User.id
+            ).filter(
+                Student.user_id == user_id,
+                User.isDeleted == 0
+            ).first()
+            
+            if not result:
+                return None
+            
+            student, user = result
+            return {
+                "student_id": student.id,
+                "user_id": student.user_id,
+                "student_number": student.student_number,
+                "section_id": student.section,
+                "name": f"{user.first_name} {user.last_name}",
+                "email": user.email
+            }
+            
+        except Exception as e:
+            print(f"Error getting student by user ID {user_id}: {e}")
             raise
 
 # Create a singleton instance for easy import
