@@ -109,11 +109,7 @@ def check_student_onboarding(
             "has_section": has_section,
             "verified": user_data.get("verified", 0),
             "status_id": user_data.get("status_id", 1)
-        }
-        
-        # Add middle name if it exists
-        if user_data.get("middle_name"):
-            student_info["middle_name"] = user_data["middle_name"]
+        }    
         
         # 4. Determine onboarding status
         if not has_section:
