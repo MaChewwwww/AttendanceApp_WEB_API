@@ -31,7 +31,7 @@ try:
     Section = desktop_models.Section
     Program = desktop_models.Program
     AttendanceLog = desktop_models.AttendanceLog
-    AssignedCourse = desktop_models.Assigned_Course
+    Assigned_Course = desktop_models.Assigned_Course
     Status = desktop_models.Status  # Added Status model
     
     OTP_Request = desktop_models.OTP_Request  # Make sure this exists in your desktop models
