@@ -340,9 +340,18 @@ def verify_login_otp(request: LoginOTPVerificationRequest, db: Session):
         if hasattr(user, 'middle_name') and user.middle_name:
             user_data["middle_name"] = user.middle_name
         
-        # TODO: Generate authentication token (for now, we'll use a simple placeholder)
-        # In a real implementation, you would generate a JWT token here
-        auth_token = f"temp_token_{user.id}_{datetime.now().timestamp()}"
+        # Generate JWT token using the new JWT service
+        from services.auth.jwt_service import JWTService
+        try:
+            auth_token = JWTService.generate_token(user_data)
+        except Exception as token_error:
+            print(f"Error generating JWT token: {token_error}")
+            return LoginOTPVerificationResponse(
+                success=False,
+                message="Failed to generate authentication token",
+                user=None,
+                token=None
+            )
         
         print(f"✅ Login successful for: {user.email} (ID: {user.id})")
         

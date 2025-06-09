@@ -1,12 +1,13 @@
 import traceback
-from fastapi import FastAPI, Depends, Security, HTTPException, File, UploadFile, Form, Body
+from fastapi import FastAPI, Depends, Security, HTTPException, File, UploadFile, Form, Body, Header
+from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.orm import Session
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, EmailStr
 import base64
-from typing import Optional
+from typing import Optional, Dict, Any
 import numpy as np
 import cv2
 import json
@@ -34,6 +35,13 @@ from services.auth.password_reset import (
     send_forgot_password_otp, ForgotPasswordOTPRequest, ForgotPasswordOTPResponse,
     verify_password_reset_otp, PasswordResetOTPVerificationRequest, PasswordResetOTPVerificationResponse,
     reset_password, ResetPasswordRequest, ResetPasswordResponse
+)
+from services.auth.onboarding import (
+    check_student_onboarding, OnboardingCheckRequest, OnboardingCheckResponse,
+    get_available_sections, assign_student_section
+)
+from services.auth.jwt_service import (
+    JWTService, get_current_user, get_current_student, validate_auth_token_header
 )
 
 #------------------------------------------------------------
@@ -167,6 +175,22 @@ class LoginValidationResponse(BaseModel):
     is_valid: bool
     message: str
     errors: Optional[list] = None
+
+# Onboarding Models
+class SectionAssignmentRequest(BaseModel):
+    """Request model for assigning section to student"""
+    section_id: int
+
+class SectionAssignmentResponse(BaseModel):
+    """Response model for section assignment"""
+    success: bool
+    message: str
+    section_id: Optional[int] = None
+    section_name: Optional[str] = None
+
+class AvailableSectionsResponse(BaseModel):
+    """Response model for available sections"""
+    sections: list
 
 #------------------------------------------------------------
 # Health Check
@@ -562,12 +586,178 @@ def reset_password_endpoint(
     """
     return reset_password(request, db)
 
+#============================================================
+# STUDENT ONBOARDING ENDPOINTS
+#============================================================
+
 #------------------------------------------------------------
-# Legacy/Direct Login Methods (For Future Implementation)
+# Student Onboarding Flow
 #------------------------------------------------------------
 
-# TODO: Direct login endpoint (if needed)
-# @app.post("/login")
-# def direct_login_endpoint():
-#     """Direct login with email and password (legacy method)"""
-#     pass
+# Helper function to create proper JWT dependencies
+def get_jwt_student_dependency():
+    """Create a proper JWT student dependency that works with FastAPI"""
+    def jwt_student_dep(
+        credentials: HTTPAuthorizationCredentials = Depends(JWTService.security),
+        db: Session = Depends(get_db)
+    ) -> Dict[str, Any]:
+        if not credentials:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        
+        user_data = JWTService.get_current_user_from_token(credentials.credentials, db)
+        if not user_data:
+            raise HTTPException(status_code=401, detail="Invalid authentication token")
+        
+        # Check if user is a student
+        if user_data.get("role") != "Student":
+            raise HTTPException(status_code=403, detail="Student access required")
+        
+        # Check if student number exists (confirms it's a student)
+        if not user_data.get("student_number"):
+            raise HTTPException(status_code=403, detail="Student account not found")
+        
+        return user_data
+    
+    return jwt_student_dep
+
+# Check student onboarding status (using proper JWT dependency)
+@app.get("/student/onboarding/status", response_model=OnboardingCheckResponse)
+def check_student_onboarding_status(
+    current_student: Dict[str, Any] = Depends(get_jwt_student_dependency()),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Check student onboarding status using JWT authentication:
+    1. Validate JWT token automatically
+    2. Check if student has section assigned
+    3. Return onboarding status and student info
+    
+    Requires: Authorization header with Bearer JWT token
+    """
+    # The current_student is already validated by the dependency
+    has_section = current_student.get("has_section", False)
+    
+    # Prepare response
+    student_info = {
+        "user_id": current_student["user_id"],
+        "name": current_student["name"],
+        "email": current_student["email"],
+        "student_number": current_student["student_number"],
+        "section_id": current_student.get("section_id"),
+        "has_section": has_section,
+        "verified": current_student.get("verified", 0),
+        "status_id": current_student.get("status_id", 1)
+    }
+    
+    # Add middle name if it exists
+    if current_student.get("middle_name"):
+        student_info["middle_name"] = current_student["middle_name"]
+    
+    if not has_section:
+        return OnboardingCheckResponse(
+            is_onboarded=False,
+            message="Student onboarding incomplete: section not assigned",
+            has_section=False,
+            student_info=student_info
+        )
+    
+    return OnboardingCheckResponse(
+        is_onboarded=True,
+        message="Student onboarding complete",
+        has_section=True,
+        student_info=student_info
+    )
+
+# Get available sections for assignment (using proper JWT dependency)
+@app.get("/student/onboarding/sections", response_model=AvailableSectionsResponse)
+def get_available_sections_endpoint(
+    current_student: Dict[str, Any] = Depends(get_jwt_student_dependency()),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Get list of available sections for student assignment using JWT authentication:
+    1. Validate JWT token automatically
+    2. Return list of available sections
+    
+    Requires: Authorization header with Bearer JWT token
+    """
+    sections = get_available_sections(db)
+    return AvailableSectionsResponse(sections=sections)
+
+# Assign section to student (using proper JWT dependency)
+@app.post("/student/onboarding/assign-section", response_model=SectionAssignmentResponse)
+def assign_section_to_student(
+    request: SectionAssignmentRequest,
+    current_student: Dict[str, Any] = Depends(get_jwt_student_dependency()),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Assign section to student using JWT authentication:
+    1. Validate JWT token automatically
+    2. Validate section exists
+    3. Assign section to student
+    4. Return assignment result
+    
+    Requires: Authorization header with Bearer JWT token
+    """
+    # Create a temporary JWT token to pass to the existing function
+    # (This maintains compatibility with the existing assign_student_section function)
+    user_data = {
+        "user_id": current_student["user_id"],
+        "email": current_student["email"],
+        "name": current_student["name"],
+        "role": current_student["role"],
+        "student_number": current_student["student_number"]
+    }
+    
+    temp_token = JWTService.generate_token(user_data)
+    result = assign_student_section(temp_token, request.section_id, db)
+    
+    if not result["success"]:
+        if "not found" in result["message"]:
+            raise HTTPException(status_code=404, detail=result["message"])
+        else:
+            raise HTTPException(status_code=400, detail=result["message"])
+    
+    return SectionAssignmentResponse(
+        success=result["success"],
+        message=result["message"],
+        section_id=result.get("section_id"),
+        section_name=result.get("section_name")
+    )
+
+# Backward compatibility endpoints (using header-based JWT validation)
+@app.get("/student/onboarding/status-legacy", response_model=OnboardingCheckResponse)
+def check_student_onboarding_status_legacy(
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Legacy endpoint for checking student onboarding status using header-based JWT validation
+    (for backward compatibility with existing client implementations)
+    """
+    # Extract token from Authorization header
+    auth_token = JWTService.extract_token_from_header(authorization)
+    
+    return check_student_onboarding(auth_token, db)
+
+@app.post("/student/onboarding/check", response_model=OnboardingCheckResponse)
+def check_onboarding_complete(
+    request: OnboardingCheckRequest,
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Alternative endpoint to check if student onboarding is complete using header-based JWT validation
+    (for backward compatibility)
+    """
+    # Extract token from Authorization header
+    auth_token = JWTService.extract_token_from_header(authorization)
+    
+    return check_student_onboarding(auth_token, db)
+

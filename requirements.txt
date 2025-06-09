@@ -17,3 +17,11 @@ python-dotenv==1.1.0
 cryptography==43.0.3
 PyMySQL==1.1.1
 mysql-connector-python==9.3.0
+
+# JWT and authentication dependencies
+PyJWT==2.8.0
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# Additional utilities
+requests==2.31.0

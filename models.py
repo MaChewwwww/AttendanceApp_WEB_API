@@ -32,7 +32,18 @@ try:
     Program = desktop_models.Program
     AttendanceLog = desktop_models.AttendanceLog
     AssignedCourse = desktop_models.Assigned_Course
+    Status = desktop_models.Status  # Added Status model
+    
     OTP_Request = desktop_models.OTP_Request  # Make sure this exists in your desktop models
+    
+    # Additional models for onboarding functionality
+    try:
+        Schedule = desktop_models.Schedule
+        Assigned_Course_Approval = desktop_models.Assigned_Course_Approval
+    except AttributeError:
+        # These models might not exist yet in the desktop app
+        Schedule = None
+        Assigned_Course_Approval = None
     
 except ImportError as e:
     print(f"Error importing models from desktop application: {e}")
