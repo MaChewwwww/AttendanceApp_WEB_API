@@ -53,30 +53,30 @@ async def lifespan(app: FastAPI):
     # Startup code
     try:
         # Database connection is verified just by creating the app
-        print("✓ Database connection established")
+        print("[OK] Database connection established")
         
         # Start OTP cleanup service
-        print("🚀 Starting OTP cleanup service...")
+        print("[STARTING] OTP cleanup service...")
         cleanup_task = await start_cleanup_service()
-        print("✓ OTP cleanup service started (runs every 15 minutes)")
+        print("[OK] OTP cleanup service started (runs every 15 minutes)")
         
     except Exception as e:
         print(f"Database initialization error: {e}")
         traceback.print_exc()
     
-    print("✓ AttendanceApp API is ready to accept requests")
+    print("[OK] AttendanceApp API is ready to accept requests")
     yield
     
     # Cleanup code (when shutting down)
-    print("🛑 Shutting down API...")
+    print("[SHUTDOWN] Shutting down API...")
     try:
-        print("🧹 Stopping OTP cleanup service...")
+        print("[CLEANUP] Stopping OTP cleanup service...")
         await stop_cleanup_service()
-        print("✓ OTP cleanup service stopped")
+        print("[OK] OTP cleanup service stopped")
     except Exception as e:
         print(f"Error stopping cleanup service: {e}")
     
-    print("👋 API shutdown complete")
+    print("[DONE] API shutdown complete")
 
 # Create FastAPI app
 app = FastAPI(
