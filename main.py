@@ -642,9 +642,6 @@ def check_student_onboarding_status(
         "status_id": current_student.get("status_id", 1)
     }
     
-    # Add middle name if it exists
-    if current_student.get("middle_name"):
-        student_info["middle_name"] = current_student["middle_name"]
     
     if not has_section:
         return OnboardingCheckResponse(
