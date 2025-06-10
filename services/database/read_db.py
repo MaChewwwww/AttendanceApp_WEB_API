@@ -444,6 +444,7 @@ class DatabaseQueryService:
     def get_student_courses(db: Session, current_student: Dict[str, Any]) -> Dict[str, Any]:
         """
         Get all current and previous courses for a student with enrollment status
+        Uses assigned_course_approval as primary data source
         
         Args:
             db: Database session
@@ -456,6 +457,7 @@ class DatabaseQueryService:
             user_id = current_student.get("user_id")
             student_id = current_student.get("student_id")
             current_section_id = current_student.get("section_id")
+            user_status = current_student.get("status_id")
             
             if not user_id:
                 raise ValueError("User ID not found in authentication data")
@@ -472,190 +474,157 @@ class DatabaseQueryService:
                     current_section_id = student_data["section_id"]
                 print(f"Found student_id: {student_id}, section_id: {current_section_id}")
             
-            # 1A. Get ALL courses from student's current section (regardless of enrollment status)
+            # Extract student enrollment year from student number (format: 2023-AAA)
+            student_number = current_student.get("student_number", "")
+            student_enrollment_year = None
+            if student_number and "-" in student_number:
+                try:
+                    student_enrollment_year = int(student_number.split("-")[0])
+                    print(f"Student enrollment year: {student_enrollment_year}")
+                except ValueError:
+                    print(f"Could not parse enrollment year from student number: {student_number}")
+            
+            # Check if user has graduated status
+            is_graduated = False
+            if user_status:
+                # Query status table to check if user is graduated
+                from models import Status
+                status_record = db.query(Status).filter(Status.id == user_status).first()
+                if status_record and status_record.name.lower() == "graduated":
+                    is_graduated = True
+                    print(f"User has graduated status - no current courses will be shown")
+            
+            # Helper function to extract start year from academic year format "2023-2024"
+            def get_academic_year_start(academic_year_str):
+                """Extract the starting year from academic year format like '2023-2024'"""
+                if not academic_year_str or academic_year_str == "Unknown":
+                    return None
+                try:
+                    # Handle format "2023-2024" -> return 2023
+                    if "-" in academic_year_str:
+                        return int(academic_year_str.split("-")[0])
+                    # Handle single year format "2023" -> return 2023
+                    return int(academic_year_str)
+                except ValueError:
+                    return None
+            
+            # Get all assigned course approvals for this student - USE THIS AS PRIMARY SOURCE
+            print(f"Fetching all assigned_course_approval records for student_id: {student_id}")
+            student_approvals_query = db.query(
+                Assigned_Course_Approval,
+                Assigned_Course,
+                Course,
+                User,
+                Section,
+                Program
+            ).join(
+                Assigned_Course, Assigned_Course_Approval.assigned_course_id == Assigned_Course.id
+            ).join(
+                Course, Assigned_Course.course_id == Course.id
+            ).join(
+                User, Assigned_Course.faculty_id == User.id
+            ).join(
+                Section, Assigned_Course.section_id == Section.id
+            ).join(
+                Program, Section.program_id == Program.id
+            ).filter(
+                Assigned_Course_Approval.student_id == student_id,
+                Assigned_Course.isDeleted == 0,
+                Course.isDeleted == 0,
+                User.isDeleted == 0
+            ).all()
+            
+            print(f"Found {len(student_approvals_query)} total course approvals for student")
+            
+            # Filter by student enrollment year and group courses by academic year
+            courses_by_year = {}
+            for approval, assigned_course, course, faculty, section, program in student_approvals_query:
+                academic_year = assigned_course.academic_year or "Unknown"
+                academic_year_start = get_academic_year_start(academic_year)
+                
+                # Skip courses that are before the student's enrollment year
+                if student_enrollment_year and academic_year_start and academic_year_start < student_enrollment_year:
+                    print(f"Skipping course {course.name} from academic year {academic_year} (before enrollment year {student_enrollment_year})")
+                    continue
+                
+                if academic_year not in courses_by_year:
+                    courses_by_year[academic_year] = []
+                
+                course_info = {
+                    "assigned_course_id": assigned_course.id,
+                    "course_id": course.id,
+                    "course_name": course.name,
+                    "course_code": course.code,
+                    "course_description": course.description,
+                    "faculty_id": faculty.id,
+                    "faculty_name": f"{faculty.first_name} {faculty.last_name}",
+                    "faculty_email": faculty.email,
+                    "section_id": section.id,
+                    "section_name": section.name,
+                    "program_id": program.id,
+                    "program_name": program.name,
+                    "program_acronym": program.acronym,
+                    "academic_year": academic_year,
+                    "semester": assigned_course.semester,
+                    "room": assigned_course.room,
+                    "enrollment_status": approval.status,  # Primary data from assigned_course_approval
+                    "rejection_reason": approval.rejection_reason,  # Primary data from assigned_course_approval
+                    "approval_created_at": approval.created_at.isoformat() if approval.created_at else None,
+                    "approval_updated_at": approval.updated_at.isoformat() if approval.updated_at else None,
+                    "created_at": assigned_course.created_at.isoformat() if assigned_course.created_at else None,
+                    "updated_at": assigned_course.updated_at.isoformat() if assigned_course.updated_at else None
+                }
+                courses_by_year[academic_year].append(course_info)
+            
+            print(f"Filtered courses from enrollment year {student_enrollment_year} onwards")
+            print(f"Academic years found: {list(courses_by_year.keys())}")
+            
+            # Find the latest academic year based on start year
+            latest_academic_year = None
+            if courses_by_year:
+                # Sort years by their start year and get the latest one
+                valid_years = [(year, get_academic_year_start(year)) for year in courses_by_year.keys() if get_academic_year_start(year) is not None]
+                if valid_years:
+                    # Sort by start year and get the latest
+                    latest_academic_year = max(valid_years, key=lambda x: x[1])[0]
+                    print(f"Latest academic year found: {latest_academic_year}")
+            
+            # 1A. Current courses: Latest academic year courses from assigned_course_approval (if not graduated)
             current_courses = []
-            if current_section_id:
-                print(f"Fetching ALL courses for current section_id: {current_section_id}")
-                current_courses_query = db.query(
-                    Assigned_Course,
-                    Course,
-                    User,
-                    Section,
-                    Program,
-                    Assigned_Course_Approval
-                ).join(
-                    Course, Assigned_Course.course_id == Course.id
-                ).join(
-                    User, Assigned_Course.faculty_id == User.id
-                ).join(
-                    Section, Assigned_Course.section_id == Section.id
-                ).join(
-                    Program, Section.program_id == Program.id
-                ).outerjoin(
-                    Assigned_Course_Approval, 
-                    (Assigned_Course_Approval.assigned_course_id == Assigned_Course.id) &
-                    (Assigned_Course_Approval.student_id == student_id)
-                ).filter(
-                    Assigned_Course.section_id == current_section_id,
-                    Assigned_Course.isDeleted == 0,
-                    Course.isDeleted == 0,
-                    Section.isDeleted == 0,
-                    Program.isDeleted == 0,
-                    User.isDeleted == 0
-                ).all()
-                
-                for assigned_course, course, faculty, section, program, approval in current_courses_query:
-                    course_info = {
-                        "assigned_course_id": assigned_course.id,
-                        "course_id": course.id,
-                        "course_name": course.name,
-                        "course_code": course.code,
-                        "course_description": course.description,
-                        "faculty_id": faculty.id,
-                        "faculty_name": f"{faculty.first_name} {faculty.last_name}",
-                        "faculty_email": faculty.email,
-                        "section_id": section.id,
-                        "section_name": section.name,
-                        "program_id": program.id,
-                        "program_name": program.name,
-                        "program_acronym": program.acronym,
-                        "academic_year": assigned_course.academic_year,
-                        "semester": assigned_course.semester,
-                        "room": assigned_course.room,
-                        "enrollment_status": approval.status if approval else "not_enrolled",
-                        "rejection_reason": approval.rejection_reason if approval else None,
-                        "course_type": "current",
-                        "created_at": assigned_course.created_at.isoformat() if assigned_course.created_at else None,
-                        "updated_at": assigned_course.updated_at.isoformat() if assigned_course.updated_at else None
-                    }
-                    current_courses.append(course_info)
-                print(f"Found {len(current_courses)} current courses (all courses in current section)")
+            if not is_graduated and latest_academic_year and latest_academic_year in courses_by_year:
+                current_courses = courses_by_year[latest_academic_year].copy()
+                for course in current_courses:
+                    course["course_type"] = "current"
+                print(f"Found {len(current_courses)} current courses for academic year {latest_academic_year}")
             else:
-                print("No current section assigned to student")
+                if is_graduated:
+                    print("User is graduated - no current courses")
+                else:
+                    print("No latest academic year found or no courses for latest year")
             
-            # 1B. Get previous courses ONLY from attendance logs where student attended but is NOT in current section
+            # 1B. Previous courses: All other academic years from assigned_course_approval (excluding latest)
             previous_courses = []
-            if current_section_id:  # Only look for previous courses if student has a current section
-                print(f"Fetching previous courses for user_id: {user_id} (excluding current section {current_section_id})")
-                previous_courses_query = db.query(
-                    Assigned_Course,
-                    Course,
-                    User,
-                    Section,
-                    Program,
-                    Assigned_Course_Approval
-                ).join(
-                    AttendanceLog, AttendanceLog.assigned_course_id == Assigned_Course.id
-                ).join(
-                    Course, Assigned_Course.course_id == Course.id
-                ).join(
-                    User, Assigned_Course.faculty_id == User.id
-                ).join(
-                    Section, Assigned_Course.section_id == Section.id
-                ).join(
-                    Program, Section.program_id == Program.id
-                ).outerjoin(
-                    Assigned_Course_Approval,
-                    (Assigned_Course_Approval.assigned_course_id == Assigned_Course.id) &
-                    (Assigned_Course_Approval.student_id == student_id)
-                ).filter(
-                    AttendanceLog.user_id == user_id,
-                    Assigned_Course.section_id != current_section_id,  # Exclude current section
-                    Assigned_Course.isDeleted == 0,
-                    Course.isDeleted == 0,
-                    User.isDeleted == 0
-                ).distinct().all()
-                
-                for assigned_course, course, faculty, section, program, approval in previous_courses_query:
-                    course_info = {
-                        "assigned_course_id": assigned_course.id,
-                        "course_id": course.id,
-                        "course_name": course.name,
-                        "course_code": course.code,
-                        "course_description": course.description,
-                        "faculty_id": faculty.id,
-                        "faculty_name": f"{faculty.first_name} {faculty.last_name}",
-                        "faculty_email": faculty.email,
-                        "section_id": section.id,
-                        "section_name": section.name,
-                        "program_id": program.id,
-                        "program_name": program.name,
-                        "program_acronym": program.acronym,
-                        "academic_year": assigned_course.academic_year,
-                        "semester": assigned_course.semester,
-                        "room": assigned_course.room,
-                        "enrollment_status": approval.status if approval else "attended_without_enrollment",
-                        "rejection_reason": approval.rejection_reason if approval else None,
-                        "course_type": "previous",
-                        "created_at": assigned_course.created_at.isoformat() if assigned_course.created_at else None,
-                        "updated_at": assigned_course.updated_at.isoformat() if assigned_course.updated_at else None
-                    }
-                    previous_courses.append(course_info)
-                print(f"Found {len(previous_courses)} previous courses (from attendance logs, excluding current section)")
-            else:
-                # If no current section, all attended courses are considered "previous"
-                print(f"No current section - fetching all attended courses as previous for user_id: {user_id}")
-                previous_courses_query = db.query(
-                    Assigned_Course,
-                    Course,
-                    User,
-                    Section,
-                    Program,
-                    Assigned_Course_Approval
-                ).join(
-                    AttendanceLog, AttendanceLog.assigned_course_id == Assigned_Course.id
-                ).join(
-                    Course, Assigned_Course.course_id == Course.id
-                ).join(
-                    User, Assigned_Course.faculty_id == User.id
-                ).join(
-                    Section, Assigned_Course.section_id == Section.id
-                ).join(
-                    Program, Section.program_id == Program.id
-                ).outerjoin(
-                    Assigned_Course_Approval,
-                    (Assigned_Course_Approval.assigned_course_id == Assigned_Course.id) &
-                    (Assigned_Course_Approval.student_id == student_id)
-                ).filter(
-                    AttendanceLog.user_id == user_id,
-                    Assigned_Course.isDeleted == 0,
-                    Course.isDeleted == 0,
-                    User.isDeleted == 0
-                ).distinct().all()
-                
-                for assigned_course, course, faculty, section, program, approval in previous_courses_query:
-                    course_info = {
-                        "assigned_course_id": assigned_course.id,
-                        "course_id": course.id,
-                        "course_name": course.name,
-                        "course_code": course.code,
-                        "course_description": course.description,
-                        "faculty_id": faculty.id,
-                        "faculty_name": f"{faculty.first_name} {faculty.last_name}",
-                        "faculty_email": faculty.email,
-                        "section_id": section.id,
-                        "section_name": section.name,
-                        "program_id": program.id,
-                        "program_name": program.name,
-                        "program_acronym": program.acronym,
-                        "academic_year": assigned_course.academic_year,
-                        "semester": assigned_course.semester,
-                        "room": assigned_course.room,
-                        "enrollment_status": approval.status if approval else "attended_without_enrollment",
-                        "rejection_reason": approval.rejection_reason if approval else None,
-                        "course_type": "previous",
-                        "created_at": assigned_course.created_at.isoformat() if assigned_course.created_at else None,
-                        "updated_at": assigned_course.updated_at.isoformat() if assigned_course.updated_at else None
-                    }
-                    previous_courses.append(course_info)
-                print(f"Found {len(previous_courses)} total attended courses (no current section)")
+            for year, courses in courses_by_year.items():
+                if year != latest_academic_year or is_graduated:
+                    for course in courses.copy():
+                        course["course_type"] = "previous"
+                        previous_courses.append(course)
             
-            # Create enrollment summary
+            # Sort previous courses by academic year start year (most recent first)
+            previous_courses.sort(key=lambda x: get_academic_year_start(x["academic_year"]) or 0, reverse=True)
+            print(f"Found {len(previous_courses)} previous courses across {len(courses_by_year) - (1 if latest_academic_year and not is_graduated else 0)} academic years")
+            
+            # Create enrollment summary based on assigned_course_approval status
             all_courses = current_courses + previous_courses
             enrollment_summary = {}
             for course in all_courses:
                 status = course["enrollment_status"]
                 enrollment_summary[status] = enrollment_summary.get(status, 0) + 1
+            
+            # Create academic year summary
+            academic_year_summary = {}
+            for year, courses in courses_by_year.items():
+                academic_year_summary[year] = len(courses)
             
             # Prepare student info
             student_info = {
@@ -665,20 +634,24 @@ class DatabaseQueryService:
                 "email": current_student["email"],
                 "student_number": current_student["student_number"],
                 "current_section_id": current_section_id,
+                "current_academic_year": latest_academic_year,
+                "student_enrollment_year": student_enrollment_year,
+                "is_graduated": is_graduated,
                 "has_section": current_student.get("has_section", False)
             }
             
-            print(f"Successfully retrieved courses - Current: {len(current_courses)}, Previous: {len(previous_courses)}")
+            print(f"Successfully retrieved courses from assigned_course_approval - Current: {len(current_courses)}, Previous: {len(previous_courses)}")
             
             return {
                 "success": True,
-                "message": f"Retrieved {len(current_courses)} current and {len(previous_courses)} previous courses",
+                "message": f"Retrieved {len(current_courses)} current and {len(previous_courses)} previous courses across {len(courses_by_year)} academic years",
                 "student_info": student_info,
                 "current_courses": current_courses,
                 "previous_courses": previous_courses,
                 "total_current": len(current_courses),
                 "total_previous": len(previous_courses),
-                "enrollment_summary": enrollment_summary
+                "enrollment_summary": enrollment_summary,
+                "academic_year_summary": academic_year_summary
             }
             
         except Exception as e:

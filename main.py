@@ -227,6 +227,8 @@ class StudentCourseInfo(BaseModel):
     enrollment_status: str  # From assigned_course_approval
     rejection_reason: Optional[str] = None
     course_type: str  # "current" or "previous"
+    approval_created_at: Optional[str] = None  # When approval was created
+    approval_updated_at: Optional[str] = None  # When approval was last updated
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -240,6 +242,7 @@ class StudentCoursesResponse(BaseModel):
     total_current: int
     total_previous: int
     enrollment_summary: Dict[str, int]
+    academic_year_summary: Optional[Dict[str, int]] = None
 
 #------------------------------------------------------------
 # Health Check
@@ -831,10 +834,15 @@ def get_student_courses(
     api_key: str = Security(get_api_key)
 ):
     """
-    Get all courses for the authenticated student:
-    1. Current courses (from student's current section)
-    2. Previous courses (from attendance logs where student no longer has that section)
-    3. Enrollment status from assigned_course_approval table
+    Get all courses for the authenticated student with academic year-based filtering:
+    1A. Current courses: Latest academic year courses (empty if graduated)
+    1B. Previous courses: All courses from previous academic years
+    1C. Enrollment status from assigned_course_approval table
+    
+    Important Validations:
+    - If user status = "Graduated", no current courses are returned
+    - Student number format (2023-AAA) determines enrollment year filter
+    - Only courses from enrollment year onwards are included
     
     Requires: Authorization header with Bearer JWT token
     """
@@ -848,6 +856,6 @@ def get_student_courses(
         print(f"Error getting student courses: {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching student courses: {str(e)}")
 
-# 1A. Get all the current courses assigned to the student using the student section.
-# 1B. Get all the previous courses assigned to the student attendancelog. (Since previous section isn't assigned anymore to the student)
-# 1C. Map the status of those student courses to the status of the assigned_course_approval.
+# 1A. Current courses: Latest academic year courses (if not graduated)
+# 1B. Previous courses: All courses from previous academic years
+# 1C. Map the status from assigned_course_approval table
