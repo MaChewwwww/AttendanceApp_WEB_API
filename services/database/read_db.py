@@ -4,7 +4,7 @@ Contains all database operations for different modules
 """
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
-from models import Program, Section, Course, Assigned_Course, User, Student, Assigned_Course_Approval
+from models import Program, Section, Course, Assigned_Course, User, Student, Assigned_Course_Approval, AttendanceLog
 
 class DatabaseQueryService:
     """Service class for handling all database queries"""
@@ -438,6 +438,253 @@ class DatabaseQueryService:
             
         except Exception as e:
             print(f"Error getting student by user ID {user_id}: {e}")
+            raise
+    
+    @staticmethod
+    def get_student_courses(db: Session, current_student: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Get all current and previous courses for a student with enrollment status
+        
+        Args:
+            db: Database session
+            current_student: Current student data from JWT
+            
+        Returns:
+            Dictionary with current and previous courses
+        """
+        try:
+            user_id = current_student.get("user_id")
+            student_id = current_student.get("student_id")
+            current_section_id = current_student.get("section_id")
+            
+            if not user_id:
+                raise ValueError("User ID not found in authentication data")
+            
+            # If student_id is not in JWT data, fetch it from database
+            if not student_id:
+                print(f"Student ID not in JWT, fetching from database for user_id: {user_id}")
+                student_data = DatabaseQueryService.get_student_by_user_id(db, user_id)
+                if not student_data:
+                    raise ValueError("Student record not found for this user")
+                student_id = student_data["student_id"]
+                # Update current_section_id if not present
+                if not current_section_id:
+                    current_section_id = student_data["section_id"]
+                print(f"Found student_id: {student_id}, section_id: {current_section_id}")
+            
+            # 1A. Get ALL courses from student's current section (regardless of enrollment status)
+            current_courses = []
+            if current_section_id:
+                print(f"Fetching ALL courses for current section_id: {current_section_id}")
+                current_courses_query = db.query(
+                    Assigned_Course,
+                    Course,
+                    User,
+                    Section,
+                    Program,
+                    Assigned_Course_Approval
+                ).join(
+                    Course, Assigned_Course.course_id == Course.id
+                ).join(
+                    User, Assigned_Course.faculty_id == User.id
+                ).join(
+                    Section, Assigned_Course.section_id == Section.id
+                ).join(
+                    Program, Section.program_id == Program.id
+                ).outerjoin(
+                    Assigned_Course_Approval, 
+                    (Assigned_Course_Approval.assigned_course_id == Assigned_Course.id) &
+                    (Assigned_Course_Approval.student_id == student_id)
+                ).filter(
+                    Assigned_Course.section_id == current_section_id,
+                    Assigned_Course.isDeleted == 0,
+                    Course.isDeleted == 0,
+                    Section.isDeleted == 0,
+                    Program.isDeleted == 0,
+                    User.isDeleted == 0
+                ).all()
+                
+                for assigned_course, course, faculty, section, program, approval in current_courses_query:
+                    course_info = {
+                        "assigned_course_id": assigned_course.id,
+                        "course_id": course.id,
+                        "course_name": course.name,
+                        "course_code": course.code,
+                        "course_description": course.description,
+                        "faculty_id": faculty.id,
+                        "faculty_name": f"{faculty.first_name} {faculty.last_name}",
+                        "faculty_email": faculty.email,
+                        "section_id": section.id,
+                        "section_name": section.name,
+                        "program_id": program.id,
+                        "program_name": program.name,
+                        "program_acronym": program.acronym,
+                        "academic_year": assigned_course.academic_year,
+                        "semester": assigned_course.semester,
+                        "room": assigned_course.room,
+                        "enrollment_status": approval.status if approval else "not_enrolled",
+                        "rejection_reason": approval.rejection_reason if approval else None,
+                        "course_type": "current",
+                        "created_at": assigned_course.created_at.isoformat() if assigned_course.created_at else None,
+                        "updated_at": assigned_course.updated_at.isoformat() if assigned_course.updated_at else None
+                    }
+                    current_courses.append(course_info)
+                print(f"Found {len(current_courses)} current courses (all courses in current section)")
+            else:
+                print("No current section assigned to student")
+            
+            # 1B. Get previous courses ONLY from attendance logs where student attended but is NOT in current section
+            previous_courses = []
+            if current_section_id:  # Only look for previous courses if student has a current section
+                print(f"Fetching previous courses for user_id: {user_id} (excluding current section {current_section_id})")
+                previous_courses_query = db.query(
+                    Assigned_Course,
+                    Course,
+                    User,
+                    Section,
+                    Program,
+                    Assigned_Course_Approval
+                ).join(
+                    AttendanceLog, AttendanceLog.assigned_course_id == Assigned_Course.id
+                ).join(
+                    Course, Assigned_Course.course_id == Course.id
+                ).join(
+                    User, Assigned_Course.faculty_id == User.id
+                ).join(
+                    Section, Assigned_Course.section_id == Section.id
+                ).join(
+                    Program, Section.program_id == Program.id
+                ).outerjoin(
+                    Assigned_Course_Approval,
+                    (Assigned_Course_Approval.assigned_course_id == Assigned_Course.id) &
+                    (Assigned_Course_Approval.student_id == student_id)
+                ).filter(
+                    AttendanceLog.user_id == user_id,
+                    Assigned_Course.section_id != current_section_id,  # Exclude current section
+                    Assigned_Course.isDeleted == 0,
+                    Course.isDeleted == 0,
+                    User.isDeleted == 0
+                ).distinct().all()
+                
+                for assigned_course, course, faculty, section, program, approval in previous_courses_query:
+                    course_info = {
+                        "assigned_course_id": assigned_course.id,
+                        "course_id": course.id,
+                        "course_name": course.name,
+                        "course_code": course.code,
+                        "course_description": course.description,
+                        "faculty_id": faculty.id,
+                        "faculty_name": f"{faculty.first_name} {faculty.last_name}",
+                        "faculty_email": faculty.email,
+                        "section_id": section.id,
+                        "section_name": section.name,
+                        "program_id": program.id,
+                        "program_name": program.name,
+                        "program_acronym": program.acronym,
+                        "academic_year": assigned_course.academic_year,
+                        "semester": assigned_course.semester,
+                        "room": assigned_course.room,
+                        "enrollment_status": approval.status if approval else "attended_without_enrollment",
+                        "rejection_reason": approval.rejection_reason if approval else None,
+                        "course_type": "previous",
+                        "created_at": assigned_course.created_at.isoformat() if assigned_course.created_at else None,
+                        "updated_at": assigned_course.updated_at.isoformat() if assigned_course.updated_at else None
+                    }
+                    previous_courses.append(course_info)
+                print(f"Found {len(previous_courses)} previous courses (from attendance logs, excluding current section)")
+            else:
+                # If no current section, all attended courses are considered "previous"
+                print(f"No current section - fetching all attended courses as previous for user_id: {user_id}")
+                previous_courses_query = db.query(
+                    Assigned_Course,
+                    Course,
+                    User,
+                    Section,
+                    Program,
+                    Assigned_Course_Approval
+                ).join(
+                    AttendanceLog, AttendanceLog.assigned_course_id == Assigned_Course.id
+                ).join(
+                    Course, Assigned_Course.course_id == Course.id
+                ).join(
+                    User, Assigned_Course.faculty_id == User.id
+                ).join(
+                    Section, Assigned_Course.section_id == Section.id
+                ).join(
+                    Program, Section.program_id == Program.id
+                ).outerjoin(
+                    Assigned_Course_Approval,
+                    (Assigned_Course_Approval.assigned_course_id == Assigned_Course.id) &
+                    (Assigned_Course_Approval.student_id == student_id)
+                ).filter(
+                    AttendanceLog.user_id == user_id,
+                    Assigned_Course.isDeleted == 0,
+                    Course.isDeleted == 0,
+                    User.isDeleted == 0
+                ).distinct().all()
+                
+                for assigned_course, course, faculty, section, program, approval in previous_courses_query:
+                    course_info = {
+                        "assigned_course_id": assigned_course.id,
+                        "course_id": course.id,
+                        "course_name": course.name,
+                        "course_code": course.code,
+                        "course_description": course.description,
+                        "faculty_id": faculty.id,
+                        "faculty_name": f"{faculty.first_name} {faculty.last_name}",
+                        "faculty_email": faculty.email,
+                        "section_id": section.id,
+                        "section_name": section.name,
+                        "program_id": program.id,
+                        "program_name": program.name,
+                        "program_acronym": program.acronym,
+                        "academic_year": assigned_course.academic_year,
+                        "semester": assigned_course.semester,
+                        "room": assigned_course.room,
+                        "enrollment_status": approval.status if approval else "attended_without_enrollment",
+                        "rejection_reason": approval.rejection_reason if approval else None,
+                        "course_type": "previous",
+                        "created_at": assigned_course.created_at.isoformat() if assigned_course.created_at else None,
+                        "updated_at": assigned_course.updated_at.isoformat() if assigned_course.updated_at else None
+                    }
+                    previous_courses.append(course_info)
+                print(f"Found {len(previous_courses)} total attended courses (no current section)")
+            
+            # Create enrollment summary
+            all_courses = current_courses + previous_courses
+            enrollment_summary = {}
+            for course in all_courses:
+                status = course["enrollment_status"]
+                enrollment_summary[status] = enrollment_summary.get(status, 0) + 1
+            
+            # Prepare student info
+            student_info = {
+                "user_id": current_student["user_id"],
+                "student_id": student_id,
+                "name": current_student["name"],
+                "email": current_student["email"],
+                "student_number": current_student["student_number"],
+                "current_section_id": current_section_id,
+                "has_section": current_student.get("has_section", False)
+            }
+            
+            print(f"Successfully retrieved courses - Current: {len(current_courses)}, Previous: {len(previous_courses)}")
+            
+            return {
+                "success": True,
+                "message": f"Retrieved {len(current_courses)} current and {len(previous_courses)} previous courses",
+                "student_info": student_info,
+                "current_courses": current_courses,
+                "previous_courses": previous_courses,
+                "total_current": len(current_courses),
+                "total_previous": len(previous_courses),
+                "enrollment_summary": enrollment_summary
+            }
+            
+        except Exception as e:
+            print(f"Error getting student courses: {e}")
+            import traceback
+            traceback.print_exc()
             raise
 
 # Create a singleton instance for easy import

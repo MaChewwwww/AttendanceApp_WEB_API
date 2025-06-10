@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, EmailStr
 import base64
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import numpy as np
 import cv2
 import json
@@ -204,6 +204,42 @@ class SectionAssignmentResponse(BaseModel):
     section_name: Optional[str] = None
     assigned_courses_count: Optional[int] = None
     approval_records_created: Optional[int] = None
+
+# Student Courses Models
+class StudentCourseInfo(BaseModel):
+    """Model for individual course information"""
+    assigned_course_id: int
+    course_id: int
+    course_name: str
+    course_code: Optional[str] = None
+    course_description: Optional[str] = None
+    faculty_id: int
+    faculty_name: str
+    faculty_email: str
+    section_id: int
+    section_name: str
+    program_id: int
+    program_name: str
+    program_acronym: str
+    academic_year: Optional[str] = None
+    semester: Optional[str] = None
+    room: Optional[str] = None
+    enrollment_status: str  # From assigned_course_approval
+    rejection_reason: Optional[str] = None
+    course_type: str  # "current" or "previous"
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+class StudentCoursesResponse(BaseModel):
+    """Response model for student courses"""
+    success: bool
+    message: str
+    student_info: Dict[str, Any]
+    current_courses: List[StudentCourseInfo]
+    previous_courses: List[StudentCourseInfo]
+    total_current: int
+    total_previous: int
+    enrollment_summary: Dict[str, int]
 
 #------------------------------------------------------------
 # Health Check
@@ -781,3 +817,37 @@ def assign_student_to_section_endpoint(
     except Exception as e:
         print(f"Error assigning student to section: {e}")
         raise HTTPException(status_code=500, detail=f"Error assigning section: {str(e)}")
+    
+
+#============================================================
+# STUDENT COURSES ENDPOINTS
+#============================================================
+# Uses the JWT dependency to ensure the student is authenticated and authorized
+
+@app.get("/student/courses", response_model=StudentCoursesResponse)
+def get_student_courses(
+    current_student: Dict[str, Any] = Depends(get_jwt_student_dependency()),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Get all courses for the authenticated student:
+    1. Current courses (from student's current section)
+    2. Previous courses (from attendance logs where student no longer has that section)
+    3. Enrollment status from assigned_course_approval table
+    
+    Requires: Authorization header with Bearer JWT token
+    """
+    try:
+        # Get student courses using the database service
+        courses_data = db_query.get_student_courses(db, current_student)
+        
+        return StudentCoursesResponse(**courses_data)
+        
+    except Exception as e:
+        print(f"Error getting student courses: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching student courses: {str(e)}")
+
+# 1A. Get all the current courses assigned to the student using the student section.
+# 1B. Get all the previous courses assigned to the student attendancelog. (Since previous section isn't assigned anymore to the student)
+# 1C. Map the status of those student courses to the status of the assigned_course_approval.
