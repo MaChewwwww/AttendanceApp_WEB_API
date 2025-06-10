@@ -244,6 +244,36 @@ class StudentCoursesResponse(BaseModel):
     enrollment_summary: Dict[str, int]
     academic_year_summary: Optional[Dict[str, int]] = None
 
+# Course Students Models
+class CourseStudentInfo(BaseModel):
+    """Model for individual student information in a course"""
+    student_id: int
+    user_id: int
+    student_number: str
+    name: str
+    email: str
+    enrollment_status: str  # From assigned_course_approval
+    rejection_reason: Optional[str] = None
+    enrollment_created_at: Optional[str] = None
+    enrollment_updated_at: Optional[str] = None
+    latest_attendance_date: Optional[str] = None
+    latest_attendance_status: Optional[str] = None
+    total_attendance_sessions: int
+    present_count: int
+    absent_count: int
+    late_count: int
+    attendance_percentage: float
+
+class CourseStudentsResponse(BaseModel):
+    """Response model for course students"""
+    success: bool
+    message: str
+    course_info: Dict[str, Any]
+    students: List[CourseStudentInfo]
+    total_students: int
+    enrollment_summary: Dict[str, int]
+    attendance_summary: Dict[str, Any]
+
 #------------------------------------------------------------
 # Health Check
 #------------------------------------------------------------
@@ -827,6 +857,9 @@ def assign_student_to_section_endpoint(
 #============================================================
 # Uses the JWT dependency to ensure the student is authenticated and authorized
 
+# 1A. Current courses: Latest academic year courses (if not graduated)
+# 1B. Previous courses: All courses from previous academic years
+# 1C. Map the status from assigned_course_approval table
 @app.get("/student/courses", response_model=StudentCoursesResponse)
 def get_student_courses(
     current_student: Dict[str, Any] = Depends(get_jwt_student_dependency()),
@@ -856,6 +889,35 @@ def get_student_courses(
         print(f"Error getting student courses: {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching student courses: {str(e)}")
 
-# 1A. Current courses: Latest academic year courses (if not graduated)
-# 1B. Previous courses: All courses from previous academic years
-# 1C. Map the status from assigned_course_approval table
+
+# 2A. Get all the student on a certain course by passing the assigned_course_id and mapping it to assigned_course_approval
+# 2B. Return the student information along with their enrollment status
+# 2C. Get the latest attendance record for each student in the course
+# 2D. Summarize attendance data for each student
+# 2E. Return the course information along with the student list and attendance summary
+@app.get("/student/courses/{assigned_course_id}/students", response_model=CourseStudentsResponse)
+def get_course_students(
+    assigned_course_id: int,
+    current_student: Dict[str, Any] = Depends(get_jwt_student_dependency()),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Get all students enrolled in a specific course:
+    2A. Get all students for the given assigned_course_id
+    2B. Return student information with enrollment status
+    2C. Get latest attendance record for each student in the course
+    2D. Summarize attendance data for each student
+    2E. Return course information along with student list and attendance summary
+    
+    Requires: Authorization header with Bearer JWT token
+    """
+    try:
+        course_students_data = db_query.get_course_students(db, assigned_course_id)
+        return CourseStudentsResponse(**course_students_data)
+        
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        print(f"Error getting course students: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching course students: {str(e)}")

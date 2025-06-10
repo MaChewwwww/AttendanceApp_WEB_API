@@ -582,7 +582,7 @@ class DatabaseQueryService:
             # Find the latest academic year based on start year
             latest_academic_year = None
             if courses_by_year:
-                # Sort years by their start year and get the latest one
+                # Sort years by their start year and get the latest
                 valid_years = [(year, get_academic_year_start(year)) for year in courses_by_year.keys() if get_academic_year_start(year) is not None]
                 if valid_years:
                     # Sort by start year and get the latest
@@ -656,6 +656,185 @@ class DatabaseQueryService:
             
         except Exception as e:
             print(f"Error getting student courses: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+    
+    @staticmethod
+    def get_course_students(db: Session, assigned_course_id: int) -> Dict[str, Any]:
+        """
+        Get all students enrolled in a specific course with attendance summary
+        
+        Args:
+            db: Database session
+            assigned_course_id: ID of the assigned course
+            
+        Returns:
+            Dictionary with course info, students list, and summaries
+            
+        Raises:
+            ValueError: If assigned course not found
+        """
+        try:
+            # 2A & 2E: Verify assigned course exists and get course information
+            course_info_result = db.query(
+                Assigned_Course,
+                Course,
+                User,
+                Section,
+                Program
+            ).join(
+                Course, Assigned_Course.course_id == Course.id
+            ).join(
+                User, Assigned_Course.faculty_id == User.id
+            ).join(
+                Section, Assigned_Course.section_id == Section.id
+            ).join(
+                Program, Section.program_id == Program.id
+            ).filter(
+                Assigned_Course.id == assigned_course_id,
+                Assigned_Course.isDeleted == 0,
+                Course.isDeleted == 0,
+                Section.isDeleted == 0,
+                Program.isDeleted == 0,
+                User.isDeleted == 0
+            ).first()
+            
+            if not course_info_result:
+                raise ValueError("Assigned course not found or has been deleted")
+            
+            assigned_course, course, faculty, section, program = course_info_result
+            
+            # Prepare course information
+            course_info = {
+                "assigned_course_id": assigned_course.id,
+                "course_id": course.id,
+                "course_name": course.name,
+                "course_code": course.code,
+                "course_description": course.description,
+                "faculty_id": faculty.id,
+                "faculty_name": f"{faculty.first_name} {faculty.last_name}",
+                "faculty_email": faculty.email,
+                "section_id": section.id,
+                "section_name": section.name,
+                "program_id": program.id,
+                "program_name": program.name,
+                "program_acronym": program.acronym,
+                "academic_year": assigned_course.academic_year,
+                "semester": assigned_course.semester,
+                "room": assigned_course.room,
+                "created_at": assigned_course.created_at.isoformat() if assigned_course.created_at else None,
+                "updated_at": assigned_course.updated_at.isoformat() if assigned_course.updated_at else None
+            }
+            
+            # 2A & 2B: Get all students enrolled in this course with enrollment status
+            student_enrollments = db.query(
+                Assigned_Course_Approval,
+                Student,
+                User
+            ).join(
+                Student, Assigned_Course_Approval.student_id == Student.id
+            ).join(
+                User, Student.user_id == User.id
+            ).filter(
+                Assigned_Course_Approval.assigned_course_id == assigned_course_id,
+                User.isDeleted == 0
+            ).all()
+            
+            print(f"Found {len(student_enrollments)} student enrollments for course {assigned_course_id}")
+            
+            students_list = []
+            enrollment_summary = {}
+            attendance_stats = {
+                "total_sessions": 0,
+                "students_with_attendance": 0,
+                "average_attendance_percentage": 0.0
+            }
+            
+            for approval, student, user in student_enrollments:
+                # 2C: Get latest attendance record for this student in this course
+                # Note: AttendanceLog uses user_id, not student_id
+                latest_attendance = db.query(AttendanceLog).filter(
+                    AttendanceLog.user_id == user.id,  # Changed from student.id to user.id
+                    AttendanceLog.assigned_course_id == assigned_course_id
+                ).order_by(AttendanceLog.created_at.desc()).first()
+                
+                # 2D: Get attendance summary for this student in this course
+                # Note: AttendanceLog uses user_id, not student_id
+                attendance_records = db.query(AttendanceLog).filter(
+                    AttendanceLog.user_id == user.id,  # Changed from student.id to user.id
+                    AttendanceLog.assigned_course_id == assigned_course_id
+                ).all()
+                
+                # Calculate attendance statistics
+                total_sessions = len(attendance_records)
+                present_count = len([a for a in attendance_records if a.status == "present"])
+                absent_count = len([a for a in attendance_records if a.status == "absent"])
+                late_count = len([a for a in attendance_records if a.status == "late"])
+                
+                # Calculate attendance percentage
+                if total_sessions > 0:
+                    attendance_percentage = round((present_count + late_count) / total_sessions * 100, 2)
+                else:
+                    attendance_percentage = 0.0
+                
+                # Prepare student information
+                student_info = {
+                    "student_id": student.id,
+                    "user_id": user.id,
+                    "student_number": student.student_number,
+                    "name": f"{user.first_name} {user.last_name}",
+                    "email": user.email,
+                    "enrollment_status": approval.status,
+                    "rejection_reason": approval.rejection_reason,
+                    "enrollment_created_at": approval.created_at.isoformat() if approval.created_at else None,
+                    "enrollment_updated_at": approval.updated_at.isoformat() if approval.updated_at else None,
+                    "latest_attendance_date": latest_attendance.created_at.isoformat() if latest_attendance else None,
+                    "latest_attendance_status": latest_attendance.status if latest_attendance else None,
+                    "total_attendance_sessions": total_sessions,
+                    "present_count": present_count,
+                    "absent_count": absent_count,
+                    "late_count": late_count,
+                    "attendance_percentage": attendance_percentage
+                }
+                
+                students_list.append(student_info)
+                
+                # Update enrollment summary
+                status = approval.status
+                enrollment_summary[status] = enrollment_summary.get(status, 0) + 1
+                
+                # Update attendance statistics
+                if total_sessions > 0:
+                    attendance_stats["students_with_attendance"] += 1
+                    attendance_stats["total_sessions"] = max(attendance_stats["total_sessions"], total_sessions)
+            
+            # Calculate overall attendance statistics
+            if attendance_stats["students_with_attendance"] > 0:
+                total_attendance_percentage = sum([s["attendance_percentage"] for s in students_list if s["total_attendance_sessions"] > 0])
+                attendance_stats["average_attendance_percentage"] = round(
+                    total_attendance_percentage / attendance_stats["students_with_attendance"], 2
+                )
+            
+            # Sort students by name
+            students_list.sort(key=lambda x: x["name"])
+            
+            print(f"Retrieved {len(students_list)} students for course {course.name}")
+            print(f"Enrollment summary: {enrollment_summary}")
+            print(f"Attendance summary: {attendance_stats}")
+            
+            return {
+                "success": True,
+                "message": f"Retrieved {len(students_list)} students for course {course.name}",
+                "course_info": course_info,
+                "students": students_list,
+                "total_students": len(students_list),
+                "enrollment_summary": enrollment_summary,
+                "attendance_summary": attendance_stats
+            }
+            
+        except Exception as e:
+            print(f"Error getting course students for assigned_course_id {assigned_course_id}: {e}")
             import traceback
             traceback.print_exc()
             raise
