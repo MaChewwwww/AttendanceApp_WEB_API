@@ -274,6 +274,38 @@ class CourseStudentsResponse(BaseModel):
     enrollment_summary: Dict[str, int]
     attendance_summary: Dict[str, Any]
 
+# Student Attendance Models
+class StudentAttendanceRecord(BaseModel):
+    """Model for individual attendance record"""
+    attendance_id: int
+    assigned_course_id: int
+    course_id: int
+    course_name: str
+    course_code: Optional[str] = None
+    faculty_name: str
+    section_name: str
+    program_name: str
+    program_acronym: str
+    academic_year: Optional[str] = None
+    semester: Optional[str] = None
+    room: Optional[str] = None
+    attendance_date: str
+    status: str  # "present", "absent", "late"
+    has_image: bool
+    created_at: str
+    updated_at: str
+
+class StudentAttendanceResponse(BaseModel):
+    """Response model for student attendance history"""
+    success: bool
+    message: str
+    student_info: Dict[str, Any]
+    attendance_records: List[StudentAttendanceRecord]
+    total_records: int
+    attendance_summary: Dict[str, Any]
+    course_summary: Dict[str, Any]
+    academic_year_summary: Optional[Dict[str, Any]] = None
+
 #------------------------------------------------------------
 # Health Check
 #------------------------------------------------------------
@@ -921,3 +953,36 @@ def get_course_students(
     except Exception as e:
         print(f"Error getting course students: {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching course students: {str(e)}")
+    
+
+#============================================================
+# STUDENT ATTENDANCE HISTORY ENDPOINTS
+#============================================================
+# Uses the JWT dependency to ensure the student is authenticated and authorized
+
+# 1A. Get attendance all attendace log for the authenticated student
+@app.get("/student/attendance", response_model=StudentAttendanceResponse)
+def get_student_attendance(
+    current_student: Dict[str, Any] = Depends(get_jwt_student_dependency()),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Get all attendance records for the authenticated student:
+    1A. Get all attendance logs for the student across all courses
+    1B. Include course and enrollment information for each record
+    1C. Provide attendance summary statistics
+    1D. Group by academic year and course
+    
+    Requires: Authorization header with Bearer JWT token
+    """
+    try:
+        # Get student attendance using the database service
+        attendance_data = db_query.get_student_attendance_history(db, current_student)
+        
+        return StudentAttendanceResponse(**attendance_data)
+        
+    except Exception as e:
+        print(f"Error getting student attendance: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching student attendance: {str(e)}")
+

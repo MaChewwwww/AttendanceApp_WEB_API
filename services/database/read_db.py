@@ -838,6 +838,197 @@ class DatabaseQueryService:
             import traceback
             traceback.print_exc()
             raise
+    
+    @staticmethod
+    def get_student_attendance_history(db: Session, current_student: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Get all attendance records for a student with course information
+        
+        Args:
+            db: Database session
+            current_student: Current student data from JWT
+            
+        Returns:
+            Dictionary with attendance records and summaries
+        """
+        try:
+            user_id = current_student.get("user_id")
+            student_id = current_student.get("student_id")
+            
+            if not user_id:
+                raise ValueError("User ID not found in authentication data")
+            
+            # If student_id is not in JWT data, fetch it from database
+            if not student_id:
+                print(f"Student ID not in JWT, fetching from database for user_id: {user_id}")
+                student_data = DatabaseQueryService.get_student_by_user_id(db, user_id)
+                if not student_data:
+                    raise ValueError("Student record not found for this user")
+                student_id = student_data["student_id"]
+                print(f"Found student_id: {student_id}")
+            
+            # Get all attendance logs for this student with course information
+            print(f"Fetching attendance records for user_id: {user_id}")
+            attendance_query = db.query(
+                AttendanceLog,
+                Assigned_Course,
+                Course,
+                User,
+                Section,
+                Program
+            ).join(
+                Assigned_Course, AttendanceLog.assigned_course_id == Assigned_Course.id
+            ).join(
+                Course, Assigned_Course.course_id == Course.id
+            ).join(
+                User, Assigned_Course.faculty_id == User.id
+            ).join(
+                Section, Assigned_Course.section_id == Section.id
+            ).join(
+                Program, Section.program_id == Program.id
+            ).filter(
+                AttendanceLog.user_id == user_id,
+                Assigned_Course.isDeleted == 0,
+                Course.isDeleted == 0,
+                User.isDeleted == 0
+            ).order_by(AttendanceLog.date.desc()).all()
+            
+            print(f"Found {len(attendance_query)} attendance records for student")
+            
+            # Process attendance records
+            attendance_records = []
+            course_summary = {}
+            academic_year_summary = {}
+            status_counts = {"present": 0, "absent": 0, "late": 0}
+            
+            for attendance, assigned_course, course, faculty, section, program in attendance_query:
+                # Check if attendance has an image
+                has_image = attendance.image is not None and len(attendance.image) > 0
+                
+                # Prepare attendance record
+                attendance_record = {
+                    "attendance_id": attendance.id,
+                    "assigned_course_id": assigned_course.id,
+                    "course_id": course.id,
+                    "course_name": course.name,
+                    "course_code": course.code,
+                    "faculty_name": f"{faculty.first_name} {faculty.last_name}",
+                    "section_name": section.name,
+                    "program_name": program.name,
+                    "program_acronym": program.acronym,
+                    "academic_year": assigned_course.academic_year,
+                    "semester": assigned_course.semester,
+                    "room": assigned_course.room,
+                    "attendance_date": attendance.date.isoformat() if attendance.date else None,
+                    "status": attendance.status,
+                    "has_image": has_image,
+                    "created_at": attendance.created_at.isoformat() if attendance.created_at else None,
+                    "updated_at": attendance.updated_at.isoformat() if attendance.updated_at else None
+                }
+                
+                attendance_records.append(attendance_record)
+                
+                # Update status counts
+                if attendance.status in status_counts:
+                    status_counts[attendance.status] += 1
+                
+                # Update course summary
+                course_key = f"{course.name} ({assigned_course.academic_year})"
+                if course_key not in course_summary:
+                    course_summary[course_key] = {
+                        "course_name": course.name,
+                        "course_code": course.code,
+                        "academic_year": assigned_course.academic_year,
+                        "semester": assigned_course.semester,
+                        "total_sessions": 0,
+                        "present": 0,
+                        "absent": 0,
+                        "late": 0,
+                        "attendance_percentage": 0.0
+                    }
+                
+                course_summary[course_key]["total_sessions"] += 1
+                if attendance.status in ["present", "absent", "late"]:
+                    course_summary[course_key][attendance.status] += 1
+                
+                # Update academic year summary
+                academic_year = assigned_course.academic_year or "Unknown"
+                if academic_year not in academic_year_summary:
+                    academic_year_summary[academic_year] = {
+                        "total_sessions": 0,
+                        "present": 0,
+                        "absent": 0,
+                        "late": 0,
+                        "attendance_percentage": 0.0
+                    }
+                
+                academic_year_summary[academic_year]["total_sessions"] += 1
+                if attendance.status in ["present", "absent", "late"]:
+                    academic_year_summary[academic_year][attendance.status] += 1
+            
+            # Calculate attendance percentages for course summary
+            for course_key in course_summary:
+                course_data = course_summary[course_key]
+                total = course_data["total_sessions"]
+                if total > 0:
+                    attended = course_data["present"] + course_data["late"]
+                    course_data["attendance_percentage"] = round((attended / total) * 100, 2)
+            
+            # Calculate attendance percentages for academic year summary
+            for year in academic_year_summary:
+                year_data = academic_year_summary[year]
+                total = year_data["total_sessions"]
+                if total > 0:
+                    attended = year_data["present"] + year_data["late"]
+                    year_data["attendance_percentage"] = round((attended / total) * 100, 2)
+            
+            # Calculate overall attendance statistics
+            total_sessions = len(attendance_records)
+            overall_attendance_percentage = 0.0
+            if total_sessions > 0:
+                attended_sessions = status_counts["present"] + status_counts["late"]
+                overall_attendance_percentage = round((attended_sessions / total_sessions) * 100, 2)
+            
+            attendance_summary = {
+                "total_sessions": total_sessions,
+                "present_count": status_counts["present"],
+                "absent_count": status_counts["absent"],
+                "late_count": status_counts["late"],
+                "attended_sessions": status_counts["present"] + status_counts["late"],
+                "overall_attendance_percentage": overall_attendance_percentage,
+                "unique_courses": len(course_summary),
+                "unique_academic_years": len(academic_year_summary)
+            }
+            
+            # Prepare student info
+            student_info = {
+                "user_id": current_student["user_id"],
+                "student_id": student_id,
+                "name": current_student["name"],
+                "email": current_student["email"],
+                "student_number": current_student["student_number"],
+                "section_id": current_student.get("section_id"),
+                "has_section": current_student.get("has_section", False)
+            }
+            
+            print(f"Successfully retrieved {total_sessions} attendance records across {len(course_summary)} courses")
+            
+            return {
+                "success": True,
+                "message": f"Retrieved {total_sessions} attendance records across {len(course_summary)} courses and {len(academic_year_summary)} academic years",
+                "student_info": student_info,
+                "attendance_records": attendance_records,
+                "total_records": total_sessions,
+                "attendance_summary": attendance_summary,
+                "course_summary": course_summary,
+                "academic_year_summary": academic_year_summary
+            }
+            
+        except Exception as e:
+            print(f"Error getting student attendance history: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
 
 # Create a singleton instance for easy import
 db_query = DatabaseQueryService()
