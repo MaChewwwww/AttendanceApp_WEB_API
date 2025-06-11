@@ -306,6 +306,47 @@ class StudentAttendanceResponse(BaseModel):
     course_summary: Dict[str, Any]
     academic_year_summary: Optional[Dict[str, Any]] = None
 
+# Current Semester Attendance Models
+class CurrentSemesterAttendanceRecord(BaseModel):
+    """Model for current semester attendance record"""
+    attendance_id: int
+    assigned_course_id: int
+    course_id: int
+    course_name: str
+    course_code: Optional[str] = None
+    course_description: Optional[str] = None
+    faculty_name: str
+    faculty_email: str
+    academic_year: Optional[str] = None
+    semester: Optional[str] = None
+    room: Optional[str] = None
+    attendance_date: Optional[str] = None
+    status: str  # "present", "absent", "late"
+    has_image: bool
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+class CurrentSemesterCourseInfo(BaseModel):
+    """Model for current semester course information"""
+    assigned_course_id: int
+    course_id: int
+    course_name: str
+    course_code: Optional[str] = None
+    academic_year: Optional[str] = None
+    semester: Optional[str] = None
+
+class CurrentSemesterAttendanceResponse(BaseModel):
+    """Response model for current semester attendance"""
+    success: bool
+    message: str
+    student_info: Dict[str, Any]
+    attendance_logs: List[CurrentSemesterAttendanceRecord]
+    total_logs: int
+    courses: List[CurrentSemesterCourseInfo]
+    academic_year: Optional[str] = None
+    semester: Optional[str] = None
+    attendance_summary: Dict[str, Any]
+
 # Dashboard Models
 class DashboardClassInfo(BaseModel):
     """Model for class information in dashboard"""
@@ -333,6 +374,7 @@ class DashboardScheduleItem(BaseModel):
     start_time: Optional[str] = None
     end_time: Optional[str] = None
     status: str  # "upcoming", "ongoing", "completed"
+    is_today: Optional[bool] = False  # Add this field for calendar filtering
 
 class DashboardScheduleSummary(BaseModel):
     """Model for schedule summary"""
@@ -1034,6 +1076,39 @@ def get_student_attendance(
         print(f"Error getting student attendance: {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching student attendance: {str(e)}")
 
+# 2. Get current semester attendance logs based on enrolled courses
+@app.get("/student/attendance/current-semester", response_model=CurrentSemesterAttendanceResponse)
+def get_current_semester_attendance(
+    current_student: Dict[str, Any] = Depends(get_jwt_student_dependency()),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Get attendance logs for current academic year and semester based on enrolled courses:
+    2A. Get enrolled courses (status = "enrolled") for current semester
+    2B. Return attendance logs only for these enrolled courses
+    2C. Include academic year and semester information
+    2D. Provide attendance summary for current semester
+    
+    Requires: Authorization header with Bearer JWT token
+    """
+    try:
+        # Import the new function
+        from services.database.attendance_crud import get_current_semester_attendance
+        
+        # Get current semester attendance data
+        attendance_data = get_current_semester_attendance(db, current_student)
+        
+        if "error" in attendance_data:
+            raise HTTPException(status_code=500, detail=attendance_data["error"])
+        
+        return CurrentSemesterAttendanceResponse(**attendance_data)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting current semester attendance: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching current semester attendance: {str(e)}")
 
 #============================================================
 # Dashboard ENDPOINTS
@@ -1071,26 +1146,3 @@ def get_student_dashboard(
     except Exception as e:
         print(f"Error getting student dashboard: {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching dashboard data: {str(e)}")
-
-# Import the debug function
-from services.database.attendance_crud import debug_student_schedule
-
-# Debug endpoint for schedule testing
-@app.get("/student/debug/schedule")
-def debug_student_schedule_endpoint(
-    current_student: Dict[str, Any] = Depends(get_jwt_student_dependency()),
-    db: Session = Depends(get_db),
-    api_key: str = Security(get_api_key)
-):
-    """
-    Debug endpoint to check student's schedule detection
-    
-    Requires: Authorization header with Bearer JWT token
-    """
-    try:
-        debug_info = debug_student_schedule(db, current_student)
-        return debug_info
-        
-    except Exception as e:
-        print(f"Error in debug schedule: {e}")
-        raise HTTPException(status_code=500, detail=f"Debug error: {str(e)}")
