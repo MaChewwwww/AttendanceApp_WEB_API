@@ -100,7 +100,7 @@ POST /forgotPassword/reset-password
 
 ---
 
-## 🗓️ Update: January 2025
+## 🗓️ Update: June 2025
 **Module**: Authentication System & Account Management  
 **Status**: ✅ **Completed**
 **Version**: 1.1.0
