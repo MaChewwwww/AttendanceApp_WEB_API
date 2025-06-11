@@ -131,8 +131,9 @@ def get_student_dashboard_data(db: Session, current_student: Dict[str, Any]) -> 
                 "enrollment_status": course.enrollment_status
             })
         
-        # Get today's schedule
+        # Get today's schedule and all schedules for enrolled courses
         today_schedule = []
+        all_enrolled_schedules = []
         current_datetime = datetime.now()
         current_time = current_datetime.time()
         current_date = current_datetime.date()
@@ -166,7 +167,8 @@ def get_student_dashboard_data(db: Session, current_student: Dict[str, Any]) -> 
             ).all()
         
         if assigned_course_ids:
-            schedules = db.query(
+            # Get ALL schedules for enrolled courses (for calendar filtering)
+            all_schedules_query = db.query(
                 Schedule.id.label("schedule_id"),
                 Schedule.assigned_course_id,
                 Schedule.day_of_week,
@@ -184,13 +186,11 @@ def get_student_dashboard_data(db: Session, current_student: Dict[str, Any]) -> 
             ).join(
                 User, Assigned_Course.faculty_id == User.id
             ).filter(
-                and_(
-                    Schedule.assigned_course_id.in_(assigned_course_ids),
-                    Schedule.day_of_week.ilike(current_day)  # Use case-insensitive comparison
-                )
-            ).order_by(Schedule.start_time).all()
+                Schedule.assigned_course_id.in_(assigned_course_ids)
+            ).order_by(Schedule.day_of_week, Schedule.start_time).all()
             
-            for schedule in schedules:
+            # Process all schedules for enrolled courses
+            for schedule in all_schedules_query:
                 # Handle datetime objects - but treat them as recurring weekly schedules
                 start_datetime = schedule.start_time if isinstance(schedule.start_time, datetime) else schedule.start_time
                 end_datetime = schedule.end_time if isinstance(schedule.end_time, datetime) else schedule.end_time
@@ -206,23 +206,30 @@ def get_student_dashboard_data(db: Session, current_student: Dict[str, Any]) -> 
                 else:
                     end_time = end_datetime
                 
-                # Create today's schedule times for comparison
-                today_start = datetime.combine(current_date, start_time)
-                today_end = datetime.combine(current_date, end_time)
+                # Determine if this schedule is for today
+                is_today = schedule.day_of_week.lower() == current_day.lower()
                 
-                # Handle overnight classes (end time is next day)
-                if end_time < start_time:
-                    today_end = today_end + timedelta(days=1)
+                # For today's schedules, calculate status
+                class_status = "upcoming"  # Default status for non-today schedules
                 
-                # Determine class status using TODAY'S schedule times
-                class_status = "upcoming"
+                if is_today:
+                    # Create today's schedule times for comparison
+                    today_start = datetime.combine(current_date, start_time)
+                    today_end = datetime.combine(current_date, end_time)
+                    
+                    # Handle overnight classes (end time is next day)
+                    if end_time < start_time:
+                        today_end = today_end + timedelta(days=1)
+                    
+                    # Determine class status using TODAY'S schedule times
+                    if current_datetime >= today_start and current_datetime <= today_end:
+                        class_status = "ongoing"
+                    elif current_datetime > today_end:
+                        class_status = "completed"
+                    else:
+                        class_status = "upcoming"
                 
-                if current_datetime >= today_start and current_datetime <= today_end:
-                    class_status = "ongoing"
-                elif current_datetime > today_end:
-                    class_status = "completed"
-                
-                today_schedule.append({
+                schedule_item = {
                     "schedule_id": schedule.schedule_id,
                     "assigned_course_id": schedule.assigned_course_id,
                     "course_name": schedule.course_name,
@@ -232,10 +239,18 @@ def get_student_dashboard_data(db: Session, current_student: Dict[str, Any]) -> 
                     "day_of_week": schedule.day_of_week,
                     "start_time": start_time.strftime("%H:%M") if start_time else None,
                     "end_time": end_time.strftime("%H:%M") if end_time else None,
-                    "status": class_status
-                })
+                    "status": class_status,
+                    "is_today": is_today
+                }
+                
+                # Add to all schedules list
+                all_enrolled_schedules.append(schedule_item)
+                
+                # Add to today's schedule if it's for today
+                if is_today:
+                    today_schedule.append(schedule_item)
         
-        # Find current and next class
+        # Find current and next class from today's schedule
         current_class = None
         next_class = None
         
@@ -268,10 +283,12 @@ def get_student_dashboard_data(db: Session, current_student: Dict[str, Any]) -> 
             },
             "current_classes": current_classes,
             "today_schedule": today_schedule,
+            "all_schedules": all_enrolled_schedules,  # All schedules for calendar filtering
             "total_enrolled_courses": len(current_classes),
             "pending_approvals": pending_count,
             "schedule_summary": {
                 "total_classes_today": len(today_schedule),
+                "total_weekly_schedules": len(all_enrolled_schedules),
                 "current_class": current_class,
                 "next_class": next_class,
                 "current_day": current_day

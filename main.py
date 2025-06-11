@@ -337,6 +337,7 @@ class DashboardScheduleItem(BaseModel):
 class DashboardScheduleSummary(BaseModel):
     """Model for schedule summary"""
     total_classes_today: int
+    total_weekly_schedules: int  # Total schedules across all days
     current_class: Optional[DashboardScheduleItem] = None
     next_class: Optional[DashboardScheduleItem] = None
     current_day: str
@@ -348,6 +349,7 @@ class StudentDashboardResponse(BaseModel):
     student_info: Dict[str, Any]
     current_classes: List[DashboardClassInfo]
     today_schedule: List[DashboardScheduleItem]
+    all_schedules: List[DashboardScheduleItem]  # All schedules for calendar filtering
     total_enrolled_courses: int
     pending_approvals: int
     schedule_summary: DashboardScheduleSummary
