@@ -317,41 +317,6 @@ correlation = cv2.compareHist(hist1, hist2, cv2.HISTCMP_CORREL)
 
 ---
 
-## Performance Metrics
-
-### 1. Accuracy Measurements
-
-**Face Recognition Performance**:
-- **False Acceptance Rate (FAR)**: < 0.1%
-- **False Rejection Rate (FRR)**: < 1%
-- **Equal Error Rate (EER)**: 0.5%
-
-**Anti-Spoofing Performance**:
-- **Print Attack Detection**: 98.5% accuracy
-- **Screen Attack Detection**: 97.8% accuracy
-- **Overall PAD Accuracy**: 98.1%
-
-### 2. System Performance
-
-**Processing Times** (Average):
-- **Face Detection**: 150ms
-- **Anti-Spoofing Analysis**: 300ms
-- **Face Encoding**: 200ms
-- **Total Verification**: < 650ms
-
-**Resource Requirements**:
-- **Memory Usage**: 50-100MB per verification
-- **CPU Utilization**: 2-3 cores recommended
-- **Storage**: 2KB per face template
-
-### 3. Scalability Metrics
-
-**Concurrent Users**: Up to 100 simultaneous verifications
-**Database Size**: Tested with 50,000 user profiles
-**Response Time**: < 1 second for 99th percentile
-
----
-
 ## Scientific References
 
 [1] Viola, P., & Jones, M. (2001). Rapid object detection using a boosted cascade of simple features. *Proceedings of the 2001 IEEE Computer Society Conference on Computer Vision and Pattern Recognition*, 1, I-I.
@@ -501,6 +466,6 @@ The AttendanceApp Face Verification System represents a comprehensive implementa
 The modular architecture ensures scalability and maintainability, while adherence to international standards guarantees compliance with security and privacy requirements. Regular updates and monitoring ensure the system remains effective against evolving spoofing techniques and maintains optimal performance.
 
 **Document Version**: 1.0  
-**Last Updated**: December 2024  
+**Last Updated**: June 12, 2025  
 **Classification**: Technical Implementation Guide  
 **Compliance**: ISO/IEC 19784, ISO/IEC 30107, NIST SP 800-63B
