@@ -16,7 +16,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 # Import database components
 from db import get_db, engine
-from models import Base, User, Student, OTP_Request, Program, Section, Course, Assigned_Course, Assigned_Course_Approval
+from models import Base, User, Student, OTP_Request, Program, Section, Course, Assigned_Course, Assigned_Course_Approval, Faculty
 
 from services.auth.register import (
     register_student, RegisterRequest,
@@ -395,6 +395,39 @@ class StudentDashboardResponse(BaseModel):
     total_enrolled_courses: int
     pending_approvals: int
     schedule_summary: DashboardScheduleSummary
+
+# Faculty Course Models
+class FacultyCourseInfo(BaseModel):
+    """Model for individual faculty course information"""
+    assigned_course_id: int
+    course_id: int
+    course_name: str
+    course_code: Optional[str] = None
+    course_description: Optional[str] = None
+    section_id: int
+    section_name: str
+    program_id: int
+    program_name: str
+    program_acronym: str
+    academic_year: Optional[str] = None
+    semester: Optional[str] = None
+    room: Optional[str] = None
+    enrollment_count: int
+    pending_count: int
+    total_students: int
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+class FacultyCoursesResponse(BaseModel):
+    """Response model for faculty courses endpoint"""
+    success: bool
+    message: str
+    faculty_info: Dict[str, Any]
+    current_courses: List[FacultyCourseInfo]
+    previous_courses: List[FacultyCourseInfo]
+    total_current: int
+    total_previous: int
+    semester_summary: Dict[str, Dict[str, int]]
 
 #------------------------------------------------------------
 # Health Check
@@ -819,6 +852,29 @@ def get_jwt_student_dependency():
         return user_data
     
     return jwt_student_dep
+
+# Helper function to create proper JWT faculty dependency
+def get_jwt_faculty_dependency():
+    """Create a proper JWT faculty dependency"""
+    def jwt_faculty_dep(
+        credentials: HTTPAuthorizationCredentials = Depends(JWTService.security),
+        db: Session = Depends(get_db)
+    ) -> Dict[str, Any]:
+        if not credentials:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        
+        user_data = JWTService.get_current_user_from_token(credentials.credentials, db)
+        if not user_data:
+            raise HTTPException(status_code=401, detail="Invalid authentication token")
+        
+        # Check if user is faculty
+        faculty = db.query(Faculty).filter(Faculty.user_id == user_data["user_id"]).first()
+        if not faculty:
+            raise HTTPException(status_code=403, detail="Faculty access required")
+        
+        return user_data
+    
+    return jwt_faculty_dep
 
 #============================================================
 # STUDENT ONBOARDING ENDPOINTS
@@ -1323,3 +1379,37 @@ def get_today_attendance_status(
     except Exception as e:
         print(f"Error getting today's attendance status: {e}")
         raise HTTPException(status_code=500, detail=f"Error getting today's attendance status: {str(e)}")
+
+
+#=============================================================
+# Faculty ENDPOINTS
+#=============================================================
+# Uses the JWT dependency to ensure the faculty is authenticated
+
+# 1A. Get all courses assigned to the faculty
+# 1B. Group them by academic year and semester
+@app.get("/faculty/courses", response_model=FacultyCoursesResponse)
+def get_faculty_courses(
+    current_faculty: Dict[str, Any] = Depends(get_jwt_faculty_dependency()),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Get all courses assigned to the faculty:
+    1A. Get all courses assigned to the faculty
+    1B. Group them by academic year and semester
+    
+    Requires: Authorization header with Bearer JWT token
+    """
+    try:
+        # Import the faculty courses service
+        from services.database.faculty_crud import get_faculty_courses
+        
+        # Get faculty courses data
+        courses_data = get_faculty_courses(db, current_faculty)
+        
+        return FacultyCoursesResponse(**courses_data)
+        
+    except Exception as e:
+        print(f"Error getting faculty courses: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching faculty courses: {str(e)}")
