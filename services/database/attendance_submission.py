@@ -133,22 +133,46 @@ def validate_attendance_eligibility(
         ).first()
         
         if existing_attendance:
-            return {
-                "can_submit": False,
-                "message": f"Attendance already submitted for today (Status: {existing_attendance.status})",
-                "schedule_info": {
-                    "start_time": start_time.strftime("%H:%M"),
-                    "end_time": end_time.strftime("%H:%M"),
-                    "status": "ongoing" if current_datetime <= today_end else "completed"
-                },
-                "existing_attendance": {
-                    "attendance_id": existing_attendance.id,
-                    "status": existing_attendance.status,
-                    "submitted_at": existing_attendance.created_at.isoformat() if existing_attendance.created_at else None
+            # Check the status to determine if they can still submit
+            if existing_attendance.status in ["present", "late"]:
+                # Already submitted with present/late - cannot submit again
+                return {
+                    "can_submit": False,
+                    "message": f"Attendance already submitted for today (Status: {existing_attendance.status})",
+                    "schedule_info": {
+                        "start_time": start_time.strftime("%H:%M"),
+                        "end_time": end_time.strftime("%H:%M"),
+                        "status": "ongoing" if current_datetime <= today_end else "completed"
+                    },
+                    "existing_attendance": {
+                        "attendance_id": existing_attendance.id,
+                        "status": existing_attendance.status,
+                        "submitted_at": existing_attendance.created_at.isoformat() if existing_attendance.created_at else None
+                    }
                 }
-            }
+            elif existing_attendance.status == "absent":
+                # Has absent status - can update to present/late
+                print(f"DEBUG: Student has 'absent' status, allowing attendance submission to update")
+                # Continue to allow submission (don't return here)
+                pass
+            else:
+                # Unknown status
+                return {
+                    "can_submit": False,
+                    "message": f"Unexpected attendance status: {existing_attendance.status}",
+                    "schedule_info": {
+                        "start_time": start_time.strftime("%H:%M"),
+                        "end_time": end_time.strftime("%H:%M"),
+                        "status": "ongoing" if current_datetime <= today_end else "completed"
+                    },
+                    "existing_attendance": {
+                        "attendance_id": existing_attendance.id,
+                        "status": existing_attendance.status,
+                        "submitted_at": existing_attendance.created_at.isoformat() if existing_attendance.created_at else None
+                    }
+                }
         
-        # Student can submit attendance
+        # Student can submit attendance (either no existing record or has "absent" status)
         class_status = "ongoing" if current_datetime <= today_end else "completed"
         
         return {
