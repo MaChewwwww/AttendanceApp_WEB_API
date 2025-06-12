@@ -182,14 +182,56 @@ def register_student(request: RegisterRequest, db: Session, is_otp_verified: boo
         hashed_pw = bcrypt.hashpw(request.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         birthday_date = datetime.strptime(request.birthday, "%Y-%m-%d").date()
 
-        # Handle face image - decode base64 to bytes for database storage
+        # Handle face image - decode base64 to bytes for database storage with better error handling
         face_image_data = None
         if request.face_image:
             try:
-                face_image_data = base64.b64decode(request.face_image)
+                print(f"=== FACE IMAGE PROCESSING DEBUG ===")
+                print(f"Original face_image length: {len(request.face_image)}")
+                print(f"Face image starts with: {request.face_image[:50]}")
+                
+                # Handle data URI format
+                face_image_b64 = request.face_image
+                if face_image_b64.startswith('data:image'):
+                    print("DEBUG: Removing data URI prefix")
+                    face_image_b64 = face_image_b64.split(',')[1]
+                
+                # Handle base64 padding
+                padding = len(face_image_b64) % 4
+                if padding > 0:
+                    face_image_b64 += '=' * (4 - padding)
+                    print(f"DEBUG: Added {4 - padding} padding characters")
+                
+                # Decode to binary
+                face_image_data = base64.b64decode(face_image_b64)
+                print(f"DEBUG: Decoded to {len(face_image_data)} bytes")
+                
+                # Verify it's a valid image by checking headers
+                if face_image_data[:2] == b'\xff\xd8':
+                    print("DEBUG: Valid JPEG image detected")
+                elif face_image_data[:8] == b'\x89PNG\r\n\x1a\n':
+                    print("DEBUG: Valid PNG image detected")
+                else:
+                    print(f"DEBUG: Unknown image format, header: {face_image_data[:10].hex()}")
+                
+                # Test if we can decode it with OpenCV
+                import numpy as np
+                import cv2
+                test_array = np.frombuffer(face_image_data, np.uint8)
+                test_image = cv2.imdecode(test_array, cv2.IMREAD_COLOR)
+                
+                if test_image is None:
+                    print("DEBUG: OpenCV cannot decode the processed image")
+                    raise ValueError("Processed image cannot be decoded by OpenCV")
+                else:
+                    print(f"DEBUG: OpenCV validation passed, image shape: {test_image.shape}")
+                
+                print("================================")
+                
             except Exception as e:
-                print(f"Error decoding face image: {e}")
-                raise HTTPException(status_code=400, detail="Invalid face image format")
+                print(f"Error processing face image: {e}")
+                print(f"Face image preview: {request.face_image[:100]}")
+                raise HTTPException(status_code=400, detail=f"Invalid face image format: {str(e)}")
 
         # Use default status_id = 1 (assuming this is the default student status)
         default_status_id = 1
@@ -204,7 +246,7 @@ def register_student(request: RegisterRequest, db: Session, is_otp_verified: boo
             "contact_number": request.contact_number,
             "role": "Student",
             "status_id": default_status_id,
-            "face_image": face_image_data,  # Now properly decoded to bytes
+            "face_image": face_image_data,  # Now properly validated and decoded binary data
             "verified": 1 if is_otp_verified else 0,  # Set verified=1 if OTP was used
             "isDeleted": 0
         }
@@ -232,21 +274,35 @@ def register_student(request: RegisterRequest, db: Session, is_otp_verified: boo
         db.commit()
         db.refresh(user)
 
-        verification_status = "verified" if is_otp_verified else "pending admin approval"
-        print(f"Successfully registered user: {user.email} (ID: {user.id}) - {verification_status} with status ID: {default_status_id}")
-        
-        # Send welcome email after successful registration
-        if is_otp_verified:  # Only send welcome email for OTP-verified users
-            try:
-                from services.email.service import EmailService
-                email_service = EmailService()
-                success, message = email_service.send_welcome_email(user.email, user.first_name)
-                if success:
-                    print(f"✅ Welcome email sent to {user.email}")
-                else:
-                    print(f"⚠️ Warning: Could not send welcome email to {user.email}: {message}")
-            except Exception as email_error:
-                print(f"⚠️ Warning: Could not send welcome email: {str(email_error)}")
+        # After successful user creation, log the stored face image info
+        if face_image_data:
+            print(f"=== STORED FACE IMAGE VERIFICATION ===")
+            print(f"Stored face image size: {len(face_image_data)} bytes")
+            print(f"Stored image header: {face_image_data[:10].hex()}")
+            
+            # Verify we can read it back from the database
+            db.refresh(user)
+            if user.face_image:
+                print(f"Database stored size: {len(user.face_image)} bytes")
+                print(f"Database header: {user.face_image[:10].hex()}")
+                
+                # Test if we can decode what was stored
+                try:
+                    import numpy as np
+                    import cv2
+                    db_test_array = np.frombuffer(user.face_image, np.uint8)
+                    db_test_image = cv2.imdecode(db_test_array, cv2.IMREAD_COLOR)
+                    
+                    if db_test_image is not None:
+                        print(f"✅ Database image verification passed: {db_test_image.shape}")
+                    else:
+                        print("❌ WARNING: Database image cannot be decoded!")
+                        
+                except Exception as verify_error:
+                    print(f"❌ Database verification error: {verify_error}")
+            else:
+                print("❌ WARNING: No face image found in database after storage!")
+            print("====================================")
         
         # Return structure that matches the reference implementation
         return {

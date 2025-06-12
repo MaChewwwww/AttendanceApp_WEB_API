@@ -20,7 +20,7 @@ The anti-spoofing algorithms use multiple detection techniques to identify fake 
 
 import cv2
 import numpy as np
-import base64
+import base64  # Move base64 import to module level
 from typing import Tuple, Optional
 import face_recognition
 
@@ -150,25 +150,139 @@ def enhanced_face_comparison(stored_face_image: bytes, submitted_face_image: str
     - Blocks submission if spoofing detected at any stage
     """
     try:
-        # STEP 1: DECODE STORED FACE IMAGE FROM DATABASE
-        # Convert binary data from database back to OpenCV image format
-        stored_np_array = np.frombuffer(stored_face_image, np.uint8)
-        stored_image = cv2.imdecode(stored_np_array, cv2.IMREAD_COLOR)
+        # STEP 1: DECODE STORED FACE IMAGE FROM DATABASE WITH BETTER FORMAT DETECTION
+        print(f"DEBUG: Stored face image type: {type(stored_face_image)}")
+        print(f"DEBUG: Stored face image length: {len(stored_face_image) if stored_face_image else 'None'}")
         
-        if stored_image is None:
-            return False, "Could not decode stored face image"
+        # Check if stored face image is None or empty
+        if not stored_face_image:
+            return False, "No stored face image found in profile"
+        
+        # Check if stored face image is too small (likely corrupted)
+        if len(stored_face_image) < 100:  # Minimum size for a valid image
+            return False, "Stored face image appears to be corrupted (too small)"
+        
+        try:
+            # ENHANCED FORMAT DETECTION: Check image headers more thoroughly
+            header_bytes = stored_face_image[:20]
+            print(f"DEBUG: Image header bytes: {[hex(b) for b in header_bytes[:10]]}")
+            
+            # Detect image format more accurately
+            image_format = "unknown"
+            if stored_face_image[:2] == b'\xff\xd8':
+                image_format = "JPEG"
+                print("DEBUG: Detected JPEG image format (starts with FF D8)")
+            elif stored_face_image[:8] == b'\x89PNG\r\n\x1a\n':
+                image_format = "PNG"
+                print("DEBUG: Detected PNG image format")
+            elif stored_face_image[:6] in [b'GIF87a', b'GIF89a']:
+                image_format = "GIF"
+                print("DEBUG: Detected GIF image format")
+            elif stored_face_image[:4] == b'RIFF' and stored_face_image[8:12] == b'WEBP':
+                image_format = "WEBP"
+                print("DEBUG: Detected WEBP image format")
+            else:
+                print("DEBUG: Unknown image format detected")
+                print(f"DEBUG: First 20 bytes as hex: {stored_face_image[:20].hex()}")
+                print(f"DEBUG: First 20 bytes as text (ignore errors): {repr(stored_face_image[:20])}")
+            
+            # Try multiple decode approaches with format-specific handling
+            stored_np_array = np.frombuffer(stored_face_image, np.uint8)
+            print(f"DEBUG: Numpy array shape: {stored_np_array.shape}")
+            print(f"DEBUG: Numpy array dtype: {stored_np_array.dtype}")
+            
+            # Primary decode attempt - this should work for most formats
+            stored_image = cv2.imdecode(stored_np_array, cv2.IMREAD_COLOR)
+            
+            if stored_image is None:
+                print(f"DEBUG: Primary cv2.imdecode failed for {image_format} format, trying alternatives...")
+                
+                # Alternative 1: Try with IMREAD_UNCHANGED (preserves alpha channel)
+                stored_image = cv2.imdecode(stored_np_array, cv2.IMREAD_UNCHANGED)
+                if stored_image is not None:
+                    print(f"DEBUG: Alternative decode with IMREAD_UNCHANGED succeeded for {image_format}")
+                    # Handle different channel configurations
+                    if len(stored_image.shape) == 3:
+                        if stored_image.shape[2] == 4:
+                            # RGBA to BGR
+                            print("DEBUG: Converting RGBA to BGR")
+                            stored_image = cv2.cvtColor(stored_image, cv2.COLOR_RGBA2BGR)
+                        elif stored_image.shape[2] == 3:
+                            # Might be RGB instead of BGR, check if conversion needed
+                            print(f"DEBUG: 3-channel image detected, assuming BGR")
+                            # stored_image = cv2.cvtColor(stored_image, cv2.COLOR_RGB2BGR)  # Uncomment if needed
+                    elif len(stored_image.shape) == 2:
+                        # Grayscale to BGR
+                        print("DEBUG: Converting grayscale to BGR")
+                        stored_image = cv2.cvtColor(stored_image, cv2.COLOR_GRAY2BGR)
+                else:
+                    print("DEBUG: Alternative decode with IMREAD_UNCHANGED also failed")
+                    
+                    # Alternative 2: Maybe it's base64 encoded in the database
+                    if stored_image is None:
+                        try:
+                            print("DEBUG: Trying base64 decode (double-encoded scenario)")
+                            # Use the module-level imported base64, don't import again
+                            decoded_bytes = base64.b64decode(stored_face_image)
+                            test_array = np.frombuffer(decoded_bytes, np.uint8)
+                            stored_image = cv2.imdecode(test_array, cv2.IMREAD_COLOR)
+                            if stored_image is not None:
+                                print("DEBUG: Image was base64 encoded in database!")
+                            else:
+                                print("DEBUG: Base64 decode attempt also failed")
+                        except Exception as b64_error:
+                            print(f"DEBUG: Base64 decode attempt failed with exception: {b64_error}")
+                    
+                    # Alternative 3: Try different image libraries (if available)
+                    if stored_image is None:
+                        try:
+                            print("DEBUG: Trying PIL/Pillow as fallback")
+                            from PIL import Image
+                            import io
+                            
+                            # Convert bytes to PIL Image
+                            pil_image = Image.open(io.BytesIO(stored_face_image))
+                            # Convert PIL to numpy array
+                            stored_image = np.array(pil_image)
+                            # Convert RGB to BGR for OpenCV
+                            if len(stored_image.shape) == 3 and stored_image.shape[2] == 3:
+                                stored_image = cv2.cvtColor(stored_image, cv2.COLOR_RGB2BGR)
+                            print(f"DEBUG: PIL decode successful, shape: {stored_image.shape}")
+                        except Exception as pil_error:
+                            print(f"DEBUG: PIL decode failed: {pil_error}")
+            
+            if stored_image is None:
+                print(f"DEBUG: All decode attempts failed for {image_format} format")
+                print(f"DEBUG: Image size: {len(stored_face_image)} bytes")
+                print(f"DEBUG: Image header: {stored_face_image[:50].hex()}")
+                return False, f"Could not decode stored face image - unsupported {image_format} format or corrupted data"
+            
+            print(f"DEBUG: Successfully decoded stored {image_format} image, shape: {stored_image.shape}")
+            
+        except Exception as decode_error:
+            print(f"DEBUG: Exception during stored image decode: {str(decode_error)}")
+            import traceback
+            traceback.print_exc()
+            return False, f"Error decoding stored face image: {str(decode_error)}"
         
         # STEP 2: DECODE SUBMITTED FACE IMAGE FROM BASE64
         # Handle data URI format (data:image/jpeg;base64,xxxxx)
         if submitted_face_image.startswith('data:image'):
             submitted_face_image = submitted_face_image.split(',')[1]
         
-        submitted_image_data = base64.b64decode(submitted_face_image)
-        submitted_np_array = np.frombuffer(submitted_image_data, np.uint8)
-        submitted_image = cv2.imdecode(submitted_np_array, cv2.IMREAD_COLOR)
-        
-        if submitted_image is None:
-            return False, "Could not decode submitted face image"
+        try:
+            submitted_image_data = base64.b64decode(submitted_face_image)
+            submitted_np_array = np.frombuffer(submitted_image_data, np.uint8)
+            submitted_image = cv2.imdecode(submitted_np_array, cv2.IMREAD_COLOR)
+            
+            if submitted_image is None:
+                return False, "Could not decode submitted face image"
+            
+            print(f"DEBUG: Submitted image shape: {submitted_image.shape}")
+            
+        except Exception as decode_error:
+            print(f"DEBUG: Error decoding submitted image: {str(decode_error)}")
+            return False, f"Error decoding submitted face image: {str(decode_error)}"
         
         # STEP 3: CRITICAL SECURITY CHECK - ANTI-SPOOFING DETECTION
         # This is the most important security step - MUST pass before face comparison
@@ -220,6 +334,9 @@ def enhanced_face_comparison(stored_face_image: bytes, submitted_face_image: str
         
     except Exception as e:
         # Log error and block submission for security
+        print(f"DEBUG: Enhanced face comparison error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return False, f"Face comparison error: {str(e)}"
 
 def simple_face_comparison_with_liveness(stored_face_image: bytes, submitted_face_image: str) -> Tuple[bool, str]:
@@ -249,23 +366,104 @@ def simple_face_comparison_with_liveness(stored_face_image: bytes, submitted_fac
     SECURITY: Maintains anti-spoofing protection even in fallback mode
     """
     try:
-        # DECODE STORED IMAGE
-        stored_np_array = np.frombuffer(stored_face_image, np.uint8)
-        stored_image = cv2.imdecode(stored_np_array, cv2.IMREAD_COLOR)
+        # DECODE STORED IMAGE WITH ENHANCED FORMAT DETECTION
+        print(f"DEBUG: (Simple) Stored face image type: {type(stored_face_image)}")
+        print(f"DEBUG: (Simple) Stored face image length: {len(stored_face_image) if stored_face_image else 'None'}")
         
-        if stored_image is None:
-            return False, "Could not decode stored face image"
+        # Check if stored face image is None or empty
+        if not stored_face_image:
+            return False, "No stored face image found in profile"
+        
+        # Check if stored face image is too small (likely corrupted)
+        if len(stored_face_image) < 100:  # Minimum size for a valid image
+            return False, "Stored face image appears to be corrupted (too small)"
+        
+        try:
+            # Enhanced format detection for simple method
+            header_bytes = stored_face_image[:10]
+            print(f"DEBUG: (Simple) Image header: {[hex(b) for b in header_bytes]}")
+            
+            image_format = "unknown"
+            if stored_face_image[:2] == b'\xff\xd8':
+                image_format = "JPEG"
+                print("DEBUG: (Simple) JPEG format detected")
+            elif stored_face_image[:8] == b'\x89PNG\r\n\x1a\n':
+                image_format = "PNG"
+                print("DEBUG: (Simple) PNG format detected")
+            else:
+                print(f"DEBUG: (Simple) Unknown format, header: {stored_face_image[:10].hex()}")
+            
+            stored_np_array = np.frombuffer(stored_face_image, np.uint8)
+            stored_image = cv2.imdecode(stored_np_array, cv2.IMREAD_COLOR)
+            
+            if stored_image is None:
+                print(f"DEBUG: (Simple) Primary decode failed for {image_format}, trying alternatives...")
+                
+                # Try with IMREAD_UNCHANGED
+                stored_image = cv2.imdecode(stored_np_array, cv2.IMREAD_UNCHANGED)
+                if stored_image is not None and len(stored_image.shape) >= 2:
+                    if len(stored_image.shape) == 3:
+                        if stored_image.shape[2] == 4:  # RGBA
+                            stored_image = cv2.cvtColor(stored_image, cv2.COLOR_RGBA2BGR)
+                            print("DEBUG: (Simple) RGBA to BGR conversion successful")
+                        elif stored_image.shape[2] == 3:
+                            print("DEBUG: (Simple) 3-channel image, assuming BGR")
+                    elif len(stored_image.shape) == 2:  # Grayscale
+                        stored_image = cv2.cvtColor(stored_image, cv2.COLOR_GRAY2BGR)
+                        print("DEBUG: (Simple) Grayscale to BGR conversion successful")
+                    print("DEBUG: (Simple) Alternative decode succeeded")
+                else:
+                    # Try base64 decode
+                    try:
+                        # Use the module-level imported base64, don't import again
+                        decoded_bytes = base64.b64decode(stored_face_image)
+                        test_array = np.frombuffer(decoded_bytes, np.uint8)
+                        stored_image = cv2.imdecode(test_array, cv2.IMREAD_COLOR)
+                        if stored_image is not None:
+                            print("DEBUG: (Simple) Base64 decode succeeded")
+                    except:
+                        pass
+                    
+                    # Try PIL as last resort
+                    if stored_image is None:
+                        try:
+                            from PIL import Image
+                            import io
+                            pil_image = Image.open(io.BytesIO(stored_face_image))
+                            stored_image = np.array(pil_image)
+                            if len(stored_image.shape) == 3 and stored_image.shape[2] == 3:
+                                stored_image = cv2.cvtColor(stored_image, cv2.COLOR_RGB2BGR)
+                            print("DEBUG: (Simple) PIL decode succeeded")
+                        except Exception as pil_error:
+                            print(f"DEBUG: (Simple) PIL decode failed: {pil_error}")
+            
+            if stored_image is None:
+                print(f"DEBUG: (Simple) All decode attempts failed for {image_format}")
+                return False, f"Could not decode stored face image - invalid {image_format} format"
+            
+            print(f"DEBUG: (Simple) Successfully decoded {image_format}, shape: {stored_image.shape}")
+            
+        except Exception as decode_error:
+            print(f"DEBUG: (Simple) Decode error: {str(decode_error)}")
+            return False, f"Error decoding stored face image: {str(decode_error)}"
         
         # DECODE SUBMITTED IMAGE
         if submitted_face_image.startswith('data:image'):
             submitted_face_image = submitted_face_image.split(',')[1]
         
-        submitted_image_data = base64.b64decode(submitted_face_image)
-        submitted_np_array = np.frombuffer(submitted_image_data, np.uint8)
-        submitted_image = cv2.imdecode(submitted_np_array, cv2.IMREAD_COLOR)
-        
-        if submitted_image is None:
-            return False, "Could not decode submitted face image"
+        try:
+            submitted_image_data = base64.b64decode(submitted_face_image)
+            submitted_np_array = np.frombuffer(submitted_image_data, np.uint8)
+            submitted_image = cv2.imdecode(submitted_np_array, cv2.IMREAD_COLOR)
+            
+            if submitted_image is None:
+                return False, "Could not decode submitted face image"
+            
+            print(f"DEBUG: (Simple) Submitted image shape: {submitted_image.shape}")
+            
+        except Exception as decode_error:
+            print(f"DEBUG: (Simple) Error decoding submitted image: {str(decode_error)}")
+            return False, f"Error decoding submitted face image: {str(decode_error)}"
         
         # CRITICAL: ANTI-SPOOFING CHECK (same as advanced method)
         print("Checking face liveness (simple)...")
@@ -303,11 +501,14 @@ def simple_face_comparison_with_liveness(stored_face_image: bytes, submitted_fac
             return False, f"Face does not match (confidence: {confidence}%)"
         
     except Exception as e:
+        print(f"DEBUG: Simple face comparison error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return False, f"Face comparison error: {str(e)}"
 
 # MAIN API FUNCTIONS - These are called by the attendance submission endpoint
 
-def compare_faces(stored_face_image: bytes, submitted_face_image: str, tolerance: float = 0.4) -> Tuple[bool, str]:
+def compare_faces(stored_face_image: bytes, submitted_face_image: str, tolerance: float = 0.3) -> Tuple[bool, str]:
     """
     PRIMARY FACE VERIFICATION FUNCTION with maximum security
     
