@@ -1,27 +1,37 @@
+# Core FastAPI and web framework dependencies
 fastapi==0.115.12
 pydantic==2.11.4
 pydantic_core==2.33.2
 email_validator==2.2.0
-SQLAlchemy==2.0.40
-bcrypt==4.3.0
-face-recognition==1.3.0
-face_recognition_models==0.3.0
-opencv-python==4.11.0.86
-numpy==2.2.5
-python-multipart==0.0.20
 uvicorn==0.34.2
+python-multipart==0.0.20
 anyio==4.9.0
-dlib==19.24.9
-pillow==11.2.1
-python-dotenv==1.1.0
-cryptography==43.0.3
+
+# Database dependencies
+SQLAlchemy==2.0.40
 PyMySQL==1.1.1
 mysql-connector-python==9.3.0
 
-# JWT and authentication dependencies
+# Security and authentication dependencies
+bcrypt==4.3.0
+cryptography==43.0.3
 PyJWT==2.8.0
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 
-# Additional utilities
+# Computer vision and face recognition dependencies
+opencv-python==4.11.0.86
+numpy==2.2.5
+pillow==11.2.1
+face-recognition==1.3.0
+face_recognition_models==0.3.0
+dlib==19.24.9
+
+# Environment and utilities
+python-dotenv==1.1.0
 requests==2.31.0
+setuptools>=65.0.0
+
+# Fix for face_recognition pkg_resources issue
+setuptools>=65.0.0
+pkg_resources

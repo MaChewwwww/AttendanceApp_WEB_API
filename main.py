@@ -1146,3 +1146,180 @@ def get_student_dashboard(
     except Exception as e:
         print(f"Error getting student dashboard: {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching dashboard data: {str(e)}")
+    
+#=============================================================
+# ATTENDANCE SUBMISSION ENDPOINTS
+#=============================================================
+# Uses the JWT dependency to ensure the student is authenticated and authorized
+
+# Attendance Submission Models
+class AttendanceSubmissionRequest(BaseModel):
+    """Request model for attendance submission"""
+    assigned_course_id: int
+    face_image: str  # Base64 encoded image
+    latitude: Optional[float] = None  # Note: Currently not stored in database
+    longitude: Optional[float] = None  # Note: Currently not stored in database
+
+class AttendanceValidationRequest(BaseModel):
+    """Request model for attendance validation before submission"""
+    assigned_course_id: int
+
+class AttendanceValidationResponse(BaseModel):
+    """Response model for attendance validation"""
+    can_submit: bool
+    message: str
+    schedule_info: Optional[Dict[str, Any]] = None
+    existing_attendance: Optional[Dict[str, Any]] = None
+
+class AttendanceSubmissionResponse(BaseModel):
+    """Response model for attendance submission"""
+    success: bool
+    message: str
+    attendance_id: Optional[int] = None
+    status: Optional[str] = None  # "present", "late"
+    submitted_at: Optional[str] = None
+    course_info: Optional[Dict[str, Any]] = None
+
+# 1. Validate attendance submission eligibility
+@app.post("/student/attendance/validate", response_model=AttendanceValidationResponse)
+def validate_attendance_submission(
+    request: AttendanceValidationRequest,
+    current_student: Dict[str, Any] = Depends(get_jwt_student_dependency()),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Validate if student can submit attendance for a specific course:
+    1A. Check if student is enrolled in the course
+    1B. Check if there's an ongoing class schedule
+    1C. Check if student has already submitted attendance for today
+    1D. Return validation result with schedule information
+    
+    Requires: Authorization header with Bearer JWT token
+    """
+    try:
+        # Import the validation function
+        from services.database.attendance_submission import validate_attendance_eligibility
+        
+        # Validate attendance eligibility
+        validation_result = validate_attendance_eligibility(
+            db, current_student, request.assigned_course_id
+        )
+        
+        return AttendanceValidationResponse(**validation_result)
+        
+    except Exception as e:
+        print(f"Error validating attendance submission: {e}")
+        raise HTTPException(status_code=500, detail=f"Error validating attendance submission: {str(e)}")
+
+# 2. Submit attendance with face validation
+@app.post("/student/attendance/submit", response_model=AttendanceSubmissionResponse)
+def submit_attendance(
+    request: AttendanceSubmissionRequest,
+    current_student: Dict[str, Any] = Depends(get_jwt_student_dependency()),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Submit attendance for the authenticated student:
+    2A. Validate face image using face validation service
+    2B. Verify face against stored profile image (if available)
+    2C. Validate attendance submission eligibility
+    2D. Create attendance record with face image
+    2E. Determine attendance status (present/late) based on schedule
+
+    Requires: Authorization header with Bearer JWT token
+    """
+    try:
+        print(f"Attendance submission: {current_student.get('name')} -> Course {request.assigned_course_id}")
+
+        # 1. Validate face image first
+        is_valid_face, face_message = validate_face_image(request.face_image)
+        if not is_valid_face:
+            print(f"Face validation failed: {face_message}")
+            return AttendanceSubmissionResponse(
+                success=False,
+                message=f"Face validation failed: {face_message}",
+                attendance_id=None,
+                status=None,
+                submitted_at=None,
+                course_info=None
+            )
+
+        print("Face validation passed")
+        
+        # 2. Submit attendance (includes face verification)
+        from services.database.attendance_submission import submit_student_attendance
+        
+        submission_result = submit_student_attendance(
+            db, current_student, request.assigned_course_id, 
+            request.face_image, request.latitude, request.longitude
+        )
+        
+        # Handle error responses
+        if "error" in submission_result:
+            error_message = submission_result["error"]
+            print(f"Submission failed: {error_message}")
+            
+            return AttendanceSubmissionResponse(
+                success=False,
+                message=error_message,
+                attendance_id=None,
+                status=None,
+                submitted_at=None,
+                course_info=None
+            )
+        
+        # Success response
+        response_data = {
+            "success": submission_result.get("success", False),
+            "message": submission_result.get("message", "Attendance submitted successfully"),
+            "attendance_id": submission_result.get("attendance_id"),
+            "status": submission_result.get("status"),
+            "submitted_at": submission_result.get("submitted_at"),
+            "course_info": submission_result.get("course_info")
+        }
+        
+        print(f"Attendance submitted: {submission_result.get('status')} - ID: {submission_result.get('attendance_id')}")
+        return AttendanceSubmissionResponse(**response_data)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_message = f"Error submitting attendance: {str(e)}"
+        print(f"Attendance submission error: {error_message}")
+        
+        return AttendanceSubmissionResponse(
+            success=False,
+            message=error_message,
+            attendance_id=None,
+            status=None,
+            submitted_at=None,
+            course_info=None
+        )
+
+# 3. Get student's attendance status for today
+@app.get("/student/attendance/today")
+def get_today_attendance_status(
+    current_student: Dict[str, Any] = Depends(get_jwt_student_dependency()),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Get student's attendance status for today across all enrolled courses:
+    3A. Get all enrolled courses for the student
+    3B. Check attendance status for each course today
+    3C. Include schedule information and submission status
+    
+    Requires: Authorization header with Bearer JWT token
+    """
+    try:
+        from services.database.attendance_submission import get_today_attendance_status
+        
+        status_result = get_today_attendance_status(db, current_student)
+        
+        return status_result
+        
+    except Exception as e:
+        print(f"Error getting today's attendance status: {e}")
+        raise HTTPException(status_code=500, detail=f"Error getting today's attendance status: {str(e)}")

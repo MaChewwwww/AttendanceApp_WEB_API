@@ -1,12 +1,16 @@
 # AttendanceApp API
 
-A FastAPI-based web API for the AttendanceApp, providing REST endpoints for attendance tracking functions.
+A FastAPI-based web API for the AttendanceApp, providing REST endpoints for attendance tracking functions with advanced face verification and anti-spoofing technology.
 
 ## Quick Start
 
 ```bash
 # Install dependencies
 pip install -r requirements.txt
+
+# If you encounter face_recognition installation issues on Windows:
+pip install setuptools pkg_resources
+pip install https://github.com/jloh02/dlib/releases/download/v19.22/dlib-19.22.0-cp312-cp312-win_amd64.whl
 
 # Set up environment
 cp .env.example .env
@@ -17,6 +21,7 @@ Edit your `.env` file to add your API key and other settings:
 ```properties
 API_KEY=your-secret-api-key-here
 API_KEY_NAME=X-API-Key  # Header name for the API key
+JWT_SECRET_KEY=your-jwt-secret-key-here
 ```
 
 ```bash
@@ -61,11 +66,13 @@ curl -X GET "http://127.0.0.1:8000/student/courses" \
 
 - Student registration with OTP verification
 - Password reset and recovery system
-- Face validation for registration
+- **Advanced face validation and verification** with anti-spoofing technology
+- **Real-time attendance submission** with face matching
 - JWT-based authentication system
 - Student onboarding with section assignment
 - Course management and enrollment tracking
 - Attendance history and analytics
+- **Liveness detection** to prevent photo/video spoofing
 - Health check endpoint
 - Database integration with AttendanceApp desktop application
 - API key authentication
@@ -109,6 +116,158 @@ curl -X GET "http://127.0.0.1:8000/student/courses" \
 
 ### Attendance Tracking (🆕 v1.2.0)
 - `GET /student/attendance` - Get complete attendance history for student
+
+### **🆕 Real-time Attendance Submission (v1.4.0)**
+- `POST /student/attendance/validate` - Validate attendance submission eligibility
+- `POST /student/attendance/submit` - Submit attendance with face verification
+- `GET /student/attendance/today` - Get today's attendance status across all courses
+
+## **🆕 Advanced Attendance Submission with Face Verification (v1.4.0)**
+
+The API now includes sophisticated attendance submission with face verification and anti-spoofing technology:
+
+### Features:
+- **Face Verification**: Compares submitted face with student's profile image
+- **Liveness Detection**: Prevents spoofing attempts using photos or videos
+- **Anti-Spoofing Technology**: Detects screen displays, printed photos, and digital artifacts
+- **Real-time Validation**: Checks course eligibility and schedule compliance
+- **Automatic Status Detection**: Determines if student is present or late
+
+### Attendance Submission Flow
+
+#### Step 1: Validate Attendance Eligibility
+
+```bash
+POST /student/attendance/validate
+Content-Type: application/json
+X-API-Key: your-api-key
+Authorization: Bearer your-jwt-token
+
+{
+  "assigned_course_id": 45
+}
+```
+
+Response:
+```json
+{
+  "can_submit": true,
+  "message": "Student can submit attendance",
+  "schedule_info": {
+    "course_name": "Programming Fundamentals",
+    "start_time": "10:00",
+    "end_time": "12:00",
+    "day_of_week": "Monday",
+    "room": "CS Lab 1"
+  },
+  "already_submitted": false
+}
+```
+
+#### Step 2: Submit Attendance with Face Verification
+
+```bash
+POST /student/attendance/submit
+Content-Type: application/json
+X-API-Key: your-api-key
+Authorization: Bearer your-jwt-token
+
+{
+  "assigned_course_id": 45,
+  "face_image": "base64_encoded_face_image",
+  "latitude": 14.5995,
+  "longitude": 120.9842
+}
+```
+
+Response:
+```json
+{
+  "success": true,
+  "message": "Attendance submitted successfully (Status: present)",
+  "attendance_id": 789,
+  "status": "present",
+  "submitted_at": "2024-12-12T10:30:00",
+  "course_info": {
+    "course_name": "Programming Fundamentals",
+    "course_code": "CS101",
+    "faculty_name": "Dr. Jane Smith",
+    "room": "CS Lab 1",
+    "schedule": {
+      "start_time": "10:00",
+      "end_time": "12:00"
+    }
+  }
+}
+```
+
+#### Step 3: Check Today's Attendance Status
+
+```bash
+GET /student/attendance/today
+X-API-Key: your-api-key
+Authorization: Bearer your-jwt-token
+```
+
+Response:
+```json
+{
+  "success": true,
+  "message": "Retrieved today's attendance status for 3 courses",
+  "student_info": {
+    "user_id": 17,
+    "name": "John Doe",
+    "student_number": "2023-12345"
+  },
+  "today_attendance": [
+    {
+      "assigned_course_id": 45,
+      "course_name": "Programming Fundamentals",
+      "status": "present",
+      "submitted_at": "2024-12-12T10:30:00",
+      "schedule": {
+        "start_time": "10:00",
+        "end_time": "12:00"
+      }
+    }
+  ],
+  "attendance_summary": {
+    "total_courses_today": 3,
+    "attended": 1,
+    "pending": 2,
+    "missed": 0
+  }
+}
+```
+
+### Anti-Spoofing Technology
+
+The attendance system includes advanced anti-spoofing detection:
+
+- **Screen Display Detection**: Identifies photos displayed on phone/computer screens
+- **Printed Photo Detection**: Detects printed photographs
+- **Digital Artifact Analysis**: Identifies JPEG compression and digital manipulation
+- **Lighting Analysis**: Detects artificial or uniform lighting patterns
+- **Moiré Pattern Detection**: Identifies screen pixel patterns
+- **Sharpness Analysis**: Prevents blurry or low-quality spoofing attempts
+
+### Face Verification Process
+
+1. **Liveness Detection**: Analyzes submitted image for spoofing attempts
+2. **Face Extraction**: Locates and extracts face features from both images
+3. **Encoding Comparison**: Uses advanced algorithms to compare face encodings
+4. **Confidence Scoring**: Provides confidence percentage for verification
+5. **Security Threshold**: Rejects matches below security threshold
+
+### Error Handling
+
+The system provides detailed error messages for various scenarios:
+
+- `"No profile face image found"` - Student needs to upload profile picture
+- `"Spoofing detected: Screen display detected"` - Prevented phone photo spoofing
+- `"Face verification failed"` - Submitted face doesn't match profile
+- `"No face detected in submitted image"` - Invalid face image
+- `"Course schedule not active"` - Attendance outside class hours
 
 ## Registration Flow with OTP Verification
 
@@ -508,12 +667,29 @@ X-API-Key: your-api-key
 }
 ```
 
-## Face Validation
+## Face Validation and Verification
 
-The API provides face validation functionality to ensure that:
-- A single face is clearly visible
-- Both eyes are visible (i.e., not wearing sunglasses)
-- No multiple faces in the image
+The API provides comprehensive face validation and verification functionality:
+
+### Face Validation Features:
+- Single face detection
+- Eye visibility validation (no sunglasses)
+- Image quality assessment
+- Proper face positioning
+
+### Face Verification Features:
+- **Advanced face matching** using deep learning algorithms
+- **Anti-spoofing detection** to prevent fake submissions
+- **Confidence scoring** for verification accuracy
+- **Profile image comparison** for identity verification
+
+### Anti-Spoofing Detection:
+- Screen display detection (prevents phone photo spoofing)
+- Printed photo detection
+- Digital compression artifact analysis
+- Lighting pattern analysis
+- Moiré pattern detection
+- Image sharpness validation
 
 Example request for face validation:
 
@@ -531,6 +707,30 @@ Example response:
   "message": "Face validation successful"
 }
 ```
+
+## Troubleshooting
+
+### Face Recognition Installation Issues
+
+If you encounter issues installing face_recognition on Windows:
+
+```bash
+# Install required dependencies
+pip install setuptools pkg_resources
+
+# Install dlib pre-compiled wheel
+pip install https://github.com/jloh02/dlib/releases/download/v19.22/dlib-19.22.0-cp312-cp312-win_amd64.whl
+
+# Then install face_recognition
+pip install face-recognition
+```
+
+### Common Error Messages
+
+- `"No profile face image found"` - Student needs to upload a profile picture with their face
+- `"Spoofing detected"` - System detected an attempt to use a photo/video instead of live face
+- `"Face verification failed"` - Submitted face doesn't match the student's profile image
+- `"Course schedule not active"` - Trying to submit attendance outside of class schedule
 
 ## Development
 
@@ -555,15 +755,20 @@ AttendanceApp_WEB_API/
 │   │   └── onboarding.py       # Student onboarding
 │   ├── database/       # Database query services
 │   │   ├── read_db.py          # Database read operations
-│   │   └── create_db.py        # Database write operations
+│   │   ├── create_db.py        # Database write operations
+│   │   └── attendance_submission.py  # Attendance operations (🆕 v1.4.0)
 │   ├── email/          # Email services
 │   ├── face/           # Face recognition services
+│   │   ├── face_matcher.py     # Face verification & anti-spoofing (🆕 v1.4.0)
+│   │   └── face_validator.py   # Face validation
 │   ├── otp/            # OTP management
 │   └── security/       # Security services (API key, etc.)
 └── version_updates_log/ # Version history
     ├── attendify_v1.0.0.md
     ├── attendify_v1.1.0.md
-    └── attendify_v1.2.0.md
+    ├── attendify_v1.2.0.md
+    ├── attendify_v1.3.0.md  # Dashboard charts
+    └── attendify_v1.4.0.md  # 🆕 Attendance submission
 ```
 
 ### Environment Variables
@@ -582,6 +787,8 @@ Copy `.env.example` to `.env` and configure:
 
 ## Version History
 
-- **v1.2.0** (December 2024): Complete student management system with JWT authentication, onboarding, course management, and attendance tracking
+- **🆕 v1.4.0** (June 2025): Advanced attendance submission with face verification, liveness detection, and anti-spoofing technology
+- **v1.3.0** (June 2025): Dashboard charts and analytics features
+- **v1.2.0** (June 2025): Complete student management system with JWT authentication, onboarding, course management, and attendance tracking
 - **v1.1.0** (June 2025): Enhanced authentication with login system and password reset
-- **v1.0.0** (Initial): Basic registration with OTP verification and face validation
+- **v1.0.0** (May 2025): Basic registration with OTP verification and face validation
