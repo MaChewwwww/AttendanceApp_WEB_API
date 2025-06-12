@@ -378,6 +378,48 @@ correlation = cv2.compareHist(hist1, hist2, cv2.HISTCMP_CORREL)
 
 [12] Kazemi, V., & Sullivan, J. (2014). One millisecond face alignment with an ensemble of regression trees. *Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition*, 1867-1874.
 
+### Additional Standards and Guidelines
+
+[13] ISO/IEC 19784-1:2006. Information technology — Biometric application programming interface — Part 1: BioAPI specification.
+
+[14] ISO/IEC 30107-1:2016. Information technology — Biometric presentation attack detection — Part 1: Framework.
+
+[15] ISO/IEC 30107-3:2017. Information technology — Biometric presentation attack detection — Part 3: Testing and reporting.
+
+[16] NIST Special Publication 800-63B. (2017). Digital Identity Guidelines: Authentication and Lifecycle Management.
+
+[17] ISO/IEC 19794-5:2011. Information technology — Biometric data interchange formats — Part 5: Face image data.
+
+[18] ICAO Doc 9303. (2015). Machine Readable Travel Documents, Seventh Edition.
+
+[19] European Union. (2016). General Data Protection Regulation (GDPR) Article 9: Processing of special categories of personal data.
+
+[20] Family Educational Rights and Privacy Act (FERPA). 20 U.S.C. § 1232g; 34 CFR Part 99.
+
+### Research Papers and Technical Reports
+
+[21] Wen, D., Han, H., & Jain, A. K. (2015). Face spoof detection with image distortion analysis. *IEEE Transactions on Information Forensics and Security*, 10(4), 746-761.
+
+[22] Ramachandra, R., & Busch, C. (2017). Presentation attack detection methods for face recognition systems: A comprehensive survey. *ACM Computing Surveys*, 50(1), 1-37.
+
+[23] Liu, Y., Jourabloo, A., & Liu, X. (2018). Learning deep models for face anti-spoofing: Binary or auxiliary supervision. *Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition*, 389-398.
+
+[24] George, A., & Marcel, S. (2021). Deep pixel-wise binary supervision for face presentation attack detection. *Pattern Recognition*, 116, 107948.
+
+[25] Shao, R., Lan, X., Li, J., & Yuen, P. C. (2019). Multi-adversarial discriminative deep domain generalization for face presentation attack detection. *Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition*, 10023-10031.
+
+### Technical Implementation References
+
+[26] OpenCV Development Team. (2021). OpenCV: Open Source Computer Vision Library. Version 4.5. https://opencv.org/
+
+[27] Geitgey, A. (2021). Face Recognition Library for Python. https://github.com/ageitgey/face_recognition
+
+[28] Bradski, G. (2000). The OpenCV Library. *Dr. Dobb's Journal of Software Tools*, 25(11), 120-125.
+
+[29] Deng, J., Guo, J., Xue, N., & Zafeiriou, S. (2019). ArcFace: Additive angular margin loss for deep face recognition. *Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition*, 4690-4699.
+
+[30] Schroff, F., Kalenichenko, D., & Philbin, J. (2015). FaceNet: A unified embedding for face recognition and clustering. *Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition*, 815-823.
+
 ---
 
 ## Implementation Guidelines
