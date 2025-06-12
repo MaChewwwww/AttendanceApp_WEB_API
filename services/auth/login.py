@@ -101,10 +101,13 @@ def validate_login_fields(request: LoginValidationRequest, db: Session):
                                 if not password_valid:
                                     errors.append("Invalid email or password.")
                                 else:
-                                    # Check if user is a student
+                                    # Check if user is a student or faculty
+                                    from models import Faculty as FacultyModel
                                     student = db.query(StudentModel).filter(StudentModel.user_id == user.id).first()
-                                    if not student:
-                                        errors.append("Student account not found.")
+                                    faculty = db.query(FacultyModel).filter(FacultyModel.user_id == user.id).first()
+                                    
+                                    if not student and not faculty:
+                                        errors.append("Account not found. Neither student nor faculty account exists.")
                             except Exception as pwd_error:
                                 print(f"Password verification error: {pwd_error}")
                                 errors.append("Invalid email or password.")
@@ -171,7 +174,7 @@ def send_login_otp(request: LoginOTPRequest, db: Session):
                 otp_id=None
             )
         
-        # 2. Check if user exists and is a student
+        # 2. Check if user exists and is a student or faculty
         user = db.query(UserModel).filter(UserModel.email == request.email).first()
         
         if not user:
@@ -189,12 +192,16 @@ def send_login_otp(request: LoginOTPRequest, db: Session):
                 otp_id=None
             )
         
-        # Check if user is a student
+        # Check if user is a student or faculty
+        from models import Faculty as FacultyModel
+        
         student = db.query(StudentModel).filter(StudentModel.user_id == user.id).first()
-        if not student:
+        faculty = db.query(FacultyModel).filter(FacultyModel.user_id == user.id).first()
+        
+        if not student and not faculty:
             return LoginOTPResponse(
                 success=False,
-                message="Student account not found",
+                message="Account not found. Neither student nor faculty account exists.",
                 otp_id=None
             )
         
@@ -206,8 +213,15 @@ def send_login_otp(request: LoginOTPRequest, db: Session):
             "user_id": user.id,
             "email": user.email,
             "first_name": user.first_name,
-            "student_number": student.student_number
         }
+        
+        # Add student or faculty specific data
+        if student:
+            login_data["student_number"] = student.student_number
+            login_data["account_type"] = "student"
+        elif faculty:
+            login_data["faculty_number"] = faculty.faculty_number if hasattr(faculty, 'faculty_number') else None
+            login_data["account_type"] = "faculty"
         
         success, message, otp_id = OTPService.create_login_otp(
             email=user.email,
@@ -315,26 +329,36 @@ def verify_login_otp(request: LoginOTPVerificationRequest, db: Session):
                 token=None
             )
         
-        # Get student information
+        # Check if user is a student or faculty
+        from models import Faculty as FacultyModel
+        
         student = db.query(StudentModel).filter(StudentModel.user_id == user.id).first()
-        if not student:
+        faculty = db.query(FacultyModel).filter(FacultyModel.user_id == user.id).first()
+        
+        if not student and not faculty:
             return LoginOTPVerificationResponse(
                 success=False,
-                message="Student account not found",
+                message="Account not found. Neither student nor faculty account exists.",
                 user=None,
                 token=None
             )
         
-        # Prepare user data for response
+        # Prepare basic user data for response
         user_data = {
             "user_id": user.id,
             "name": f"{user.first_name} {user.last_name}",
             "email": user.email,
             "role": user.role,
-            "student_number": student.student_number,
             "verified": getattr(user, 'verified', 0),
-            "status_id": getattr(user, 'status_id', 1)
+            "status_id": getattr(user, 'status_id', 1),
+            "account_type": "student" if student else "faculty"
         }
+        
+        # Add type-specific fields
+        if student:
+            user_data["student_number"] = student.student_number
+        elif faculty:
+            user_data["faculty_number"] = faculty.faculty_number if hasattr(faculty, 'faculty_number') else None
         
         # Add middle name if it exists
         if hasattr(user, 'middle_name') and user.middle_name:

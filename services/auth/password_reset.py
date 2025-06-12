@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 import bcrypt
 from datetime import datetime
 from pydantic import BaseModel
-from models import User as UserModel, Student as StudentModel
+from models import User as UserModel, Student as StudentModel, Faculty as FacultyModel
 from typing import Optional
 
 class ForgotPasswordValidationRequest(BaseModel):
@@ -89,15 +89,17 @@ def validate_forgot_password_email(request: ForgotPasswordValidationRequest, db:
                     if hasattr(user, 'isDeleted') and user.isDeleted:
                         errors.append("Account not found.")
                     else:
-                        # Check if user is a student
+                        # Check if user is a student or faculty
                         student = db.query(StudentModel).filter(StudentModel.user_id == user.id).first()
-                        if not student:
-                            errors.append("Student account not found.")
+                        faculty = db.query(FacultyModel).filter(FacultyModel.user_id == user.id).first()
+                        
+                        if not student and not faculty:
+                            errors.append("Account not found. Neither student nor faculty account exists.")
                         else:
                             # Check if account is verified
                             if hasattr(user, 'verified') and not user.verified:
                                 errors.append("Account is not verified. Please complete registration first.")
-                                
+                            
             except Exception as db_error:
                 errors.append("Database error during validation.")
         
@@ -160,7 +162,7 @@ def send_forgot_password_otp(request: ForgotPasswordOTPRequest, db: Session):
                 otp_id=None
             )
         
-        # 2. Check if user exists and is a valid student
+        # 2. Check if user exists and is a valid student or faculty
         user = db.query(UserModel).filter(UserModel.email == request.email).first()
         
         if not user:
@@ -178,12 +180,14 @@ def send_forgot_password_otp(request: ForgotPasswordOTPRequest, db: Session):
                 otp_id=None
             )
         
-        # Check if user is a student
+        # Check if user is a student or faculty
         student = db.query(StudentModel).filter(StudentModel.user_id == user.id).first()
-        if not student:
+        faculty = db.query(FacultyModel).filter(FacultyModel.user_id == user.id).first()
+        
+        if not student and not faculty:
             return ForgotPasswordOTPResponse(
                 success=False,
-                message="Student account not found",
+                message="Account not found. Neither student nor faculty account exists",
                 otp_id=None
             )
         
@@ -203,8 +207,15 @@ def send_forgot_password_otp(request: ForgotPasswordOTPRequest, db: Session):
             "user_id": user.id,
             "email": user.email,
             "first_name": user.first_name,
-            "student_number": student.student_number
         }
+        
+        # Add student or faculty specific data
+        if student:
+            password_reset_data["student_number"] = student.student_number
+            password_reset_data["account_type"] = "student"
+        elif faculty:
+            password_reset_data["faculty_number"] = faculty.faculty_number if hasattr(faculty, 'faculty_number') else None
+            password_reset_data["account_type"] = "faculty"
         
         success, message, otp_id = OTPService.create_password_reset_otp(
             email=user.email,
@@ -296,12 +307,14 @@ def verify_password_reset_otp(request: PasswordResetOTPVerificationRequest, db: 
                 reset_token=None
             )
         
-        # Check if user is still a student
+        # Check if user is still a student or faculty
         student = db.query(StudentModel).filter(StudentModel.user_id == user.id).first()
-        if not student:
+        faculty = db.query(FacultyModel).filter(FacultyModel.user_id == user.id).first()
+        
+        if not student and not faculty:
             return PasswordResetOTPVerificationResponse(
                 success=False,
-                message="Student account not found",
+                message="Account not found. Neither student nor faculty account exists.",
                 reset_token=None
             )
         
