@@ -427,7 +427,7 @@ class FacultyCoursesResponse(BaseModel):
     previous_courses: List[FacultyCourseInfo]
     total_current: int
     total_previous: int
-    semester_summary: Dict[str, Dict[str, int]]
+    semester_summary: Dict[str, Dict[str, Any]]  # Changed from int to Any to accommodate string values
 
 #------------------------------------------------------------
 # Health Check

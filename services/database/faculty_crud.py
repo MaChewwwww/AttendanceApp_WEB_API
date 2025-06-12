@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import func, select, join, and_, or_
+from sqlalchemy import func, select, join, and_, or_, case
 from typing import Dict, List, Any
 from datetime import datetime
 from models import (
@@ -105,14 +105,14 @@ def get_faculty_courses(db: Session, faculty_data: Dict[str, Any]) -> Dict[str, 
                 "updated_at": assigned.updated_at.isoformat() if assigned.updated_at else None
             }
             
-            # Track semester summary
+            # Track semester summary - using strings throughout to avoid type conflicts
             sem_key = f"{assigned.academic_year}-{assigned.semester}"
             if sem_key not in semester_summary:
                 semester_summary[sem_key] = {
                     "total_courses": 0,
                     "total_students": 0,
-                    "academic_year": assigned.academic_year,
-                    "semester": assigned.semester
+                    "academic_year": assigned.academic_year,  # Keep as string
+                    "semester": assigned.semester            # Keep as string
                 }
             semester_summary[sem_key]["total_courses"] += 1
             semester_summary[sem_key]["total_students"] += enrollment_counts.enrolled or 0
