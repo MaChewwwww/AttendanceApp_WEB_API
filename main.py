@@ -429,6 +429,67 @@ class FacultyCoursesResponse(BaseModel):
     total_previous: int
     semester_summary: Dict[str, Dict[str, Any]]  # Changed from int to Any to accommodate string values
 
+# Faculty Course Details Models
+class FacultyCourseStudentInfo(BaseModel):
+    """Model for individual student in faculty course details"""
+    student_id: int
+    user_id: int
+    student_number: str
+    name: str
+    email: str
+    enrollment_status: str  # From assigned_course_approval
+    rejection_reason: Optional[str] = None
+    enrollment_created_at: Optional[str] = None
+    enrollment_updated_at: Optional[str] = None
+    
+    # Attendance Summary
+    total_sessions: int
+    present_count: int
+    absent_count: int
+    late_count: int
+    failed_count: int  # Based on attendance percentage or other criteria
+    attendance_percentage: float
+    latest_attendance_date: Optional[str] = None
+    latest_attendance_status: Optional[str] = None
+
+class FacultyCourseAttendanceRecord(BaseModel):
+    """Model for individual attendance record in course details"""
+    attendance_id: int
+    student_id: int
+    student_name: str
+    student_number: str
+    attendance_date: str
+    status: str  # "present", "absent", "late"
+    has_image: bool
+    created_at: str
+    updated_at: str
+
+class FacultyCourseDetailsResponse(BaseModel):
+    """Response model for faculty course details"""
+    success: bool
+    message: str
+    course_info: Dict[str, Any]
+    section_info: Dict[str, Any]
+    faculty_info: Dict[str, Any]
+    
+    # Student enrollment data
+    enrolled_students: List[FacultyCourseStudentInfo]
+    pending_students: List[FacultyCourseStudentInfo]
+    rejected_students: List[FacultyCourseStudentInfo]
+    
+    # Statistics summary
+    enrollment_summary: Dict[str, int]
+    attendance_summary: Dict[str, Any]
+    
+    # Recent attendance records
+    recent_attendance: List[FacultyCourseAttendanceRecord]
+    
+    # Academic information
+    academic_year: Optional[str] = None
+    semester: Optional[str] = None
+    total_students: int
+    total_sessions: int
+
 #------------------------------------------------------------
 # Health Check
 #------------------------------------------------------------
@@ -1413,3 +1474,44 @@ def get_faculty_courses(
     except Exception as e:
         print(f"Error getting faculty courses: {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching faculty courses: {str(e)}")
+
+# 2. Get detailed information about a specific course including students and attendance
+@app.get("/faculty/courses/{assigned_course_id}/details", response_model=FacultyCourseDetailsResponse)
+def get_faculty_course_details(
+    assigned_course_id: int,
+    current_faculty: Dict[str, Any] = Depends(get_jwt_faculty_dependency()),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Get comprehensive details about a specific course for faculty:
+    2A. Get course and section information
+    2B. Get all students enrolled/pending/rejected in the course
+    2C. Get attendance records for all students in the course
+    2D. Calculate attendance statistics and summaries
+    2E. Return recent attendance records
+    
+    Requires: Authorization header with Bearer JWT token
+    """
+    try:
+        # Import the faculty course details service
+        from services.database.faculty_course_details import get_faculty_course_details
+        
+        # Get comprehensive course details
+        course_details = get_faculty_course_details(db, current_faculty, assigned_course_id)
+        
+        if "error" in course_details:
+            if "not found" in course_details["error"].lower():
+                raise HTTPException(status_code=404, detail=course_details["error"])
+            elif "permission" in course_details["error"].lower():
+                raise HTTPException(status_code=403, detail=course_details["error"])
+            else:
+                raise HTTPException(status_code=500, detail=course_details["error"])
+        
+        return FacultyCourseDetailsResponse(**course_details)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting faculty course details: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching course details: {str(e)}")
