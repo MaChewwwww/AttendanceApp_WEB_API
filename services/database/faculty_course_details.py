@@ -211,14 +211,18 @@ def get_faculty_course_details(db: Session, current_faculty: Dict[str, Any], ass
         enrolled_students = []
         pending_students = []
         rejected_students = []
+        passed_students = []  # Students with "passed" status
+        failed_students = []  # Students with "failed" status or poor attendance
         attending_students = []  # New category for students without formal approval
         
         enrollment_summary = {
             "enrolled": 0,
             "pending": 0,
             "rejected": 0,
+            "passed": 0,  # Students who successfully completed the course
+            "failed": 0,  # Students who failed the course
             "attending": 0,  # Students with attendance but no approval
-            "total": 0
+            "total": 0  # This will be the sum of ALL students regardless of status
         }
         
         for student, user, approval in students_query:
@@ -257,10 +261,14 @@ def get_faculty_course_details(db: Session, current_faculty: Dict[str, Any], ass
             else:
                 attendance_percentage = 0.0
             
-            # Determine failed status (you can adjust this logic)
-            failed_count = 1 if attendance_percentage < 75 else 0  # 75% minimum attendance requirement
+            # Determine if student failed based on attendance (75% minimum requirement)
+            attendance_failed = attendance_percentage < 75 if total_sessions > 0 else False
+            
+            # Determine failed status (1 if failed, 0 if passing)
+            failed_count = 1 if attendance_failed else 0
             
             print(f"  Attendance: {present_count}P + {late_count}L + {absent_count}A = {total_sessions} total ({attendance_percentage}%)")
+            print(f"  Attendance Status: {'FAILED' if attendance_failed else 'PASSING'} (Minimum 75% required)")
             
             student_info = {
                 "student_id": student.id,
@@ -282,20 +290,49 @@ def get_faculty_course_details(db: Session, current_faculty: Dict[str, Any], ass
                 "latest_attendance_status": latest_attendance.status if latest_attendance else None
             }
             
-            # Categorize by enrollment status
+            # Categorize by enrollment status - but still count ALL towards total
             if approval.status == "enrolled":
                 enrolled_students.append(student_info)
                 enrollment_summary["enrolled"] += 1
+                print(f"  -> Added to ENROLLED students")
             elif approval.status == "pending":
                 pending_students.append(student_info)
                 enrollment_summary["pending"] += 1
+                print(f"  -> Added to PENDING students")
             elif approval.status == "rejected":
                 rejected_students.append(student_info)
                 enrollment_summary["rejected"] += 1
+                print(f"  -> Added to REJECTED students")
+            elif approval.status == "passed":
+                passed_students.append(student_info)
+                enrollment_summary["passed"] += 1
+                print(f"  -> Added to PASSED students")
+            elif approval.status == "failed" or (approval.status == "enrolled" and attendance_failed):
+                # Students with explicit "failed" status OR enrolled students who failed due to poor attendance
+                failed_students.append(student_info)
+                enrollment_summary["failed"] += 1
+                print(f"  -> Added to FAILED students (Status: {approval.status}, Attendance Failed: {attendance_failed})")
             elif approval.status == "attending":
                 attending_students.append(student_info)
                 enrollment_summary["attending"] += 1
+                print(f"  -> Added to ATTENDING students (no formal approval)")
+            else:
+                # For any other status, categorize based on attendance if they have attendance records
+                if total_sessions > 0:
+                    if attendance_failed:
+                        failed_students.append(student_info)
+                        enrollment_summary["failed"] += 1
+                        print(f"  -> Added to FAILED students (Unknown status but poor attendance)")
+                    else:
+                        attending_students.append(student_info)
+                        enrollment_summary["attending"] += 1
+                        print(f"  -> Added to ATTENDING students (Unknown status but good attendance)")
+                else:
+                    attending_students.append(student_info)
+                    enrollment_summary["attending"] += 1
+                    print(f"  -> Added to ATTENDING students (Unknown status, no attendance)")
             
+            # Always increment total regardless of status
             enrollment_summary["total"] += 1
         
         print(f"✓ Enrollment summary: {enrollment_summary}")
@@ -386,7 +423,9 @@ def get_faculty_course_details(db: Session, current_faculty: Dict[str, Any], ass
             "enrolled_students": enrolled_students,
             "pending_students": pending_students,
             "rejected_students": rejected_students,
-            "attending_students": attending_students,  # Add this new category
+            "passed_students": passed_students,  # Add passed students
+            "failed_students": failed_students,  # Add failed students
+            "attending_students": attending_students,
             "enrollment_summary": enrollment_summary,
             "attendance_summary": attendance_summary,
             "recent_attendance": recent_attendance,

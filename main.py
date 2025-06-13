@@ -414,6 +414,9 @@ class FacultyCourseInfo(BaseModel):
     room: Optional[str] = None
     enrollment_count: int
     pending_count: int
+    rejected_count: int  # Add rejected count
+    passed_count: int    # Add passed count
+    failed_count: int    # Add failed count
     total_students: int
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -476,6 +479,8 @@ class FacultyCourseDetailsResponse(BaseModel):
     enrolled_students: List[FacultyCourseStudentInfo]
     pending_students: List[FacultyCourseStudentInfo]
     rejected_students: List[FacultyCourseStudentInfo]
+    passed_students: List[FacultyCourseStudentInfo]  # Students who passed the course
+    failed_students: List[FacultyCourseStudentInfo]  # Students who failed the course
     attending_students: List[FacultyCourseStudentInfo]  # Students with attendance but no formal approval
     
     # Statistics summary

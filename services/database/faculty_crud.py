@@ -141,9 +141,14 @@ def get_faculty_courses(db: Session, current_faculty: Dict[str, Any]) -> Dict[st
             enrollment_count = status_counts.get("enrolled", 0)
             pending_count = status_counts.get("pending", 0)
             rejected_count = status_counts.get("rejected", 0)
-            total_students = enrollment_count + pending_count + rejected_count
+            passed_count = status_counts.get("passed", 0)
+            failed_count = status_counts.get("failed", 0)
             
-            print(f"  Student counts: {enrollment_count} enrolled, {pending_count} pending, {rejected_count} rejected")
+            # Total should include ALL students regardless of status
+            total_students = sum(status_counts.values())  # Sum all status counts
+            
+            print(f"  Student counts: {enrollment_count} enrolled, {pending_count} pending, {rejected_count} rejected, {passed_count} passed, {failed_count} failed")
+            print(f"  Total students: {total_students} (all statuses)")
             
             course_info = {
                 "assigned_course_id": assigned_course.id,
@@ -161,6 +166,9 @@ def get_faculty_courses(db: Session, current_faculty: Dict[str, Any]) -> Dict[st
                 "room": assigned_course.room,
                 "enrollment_count": enrollment_count,
                 "pending_count": pending_count,
+                "rejected_count": rejected_count,  # Add rejected count
+                "passed_count": passed_count,      # Add passed count
+                "failed_count": failed_count,      # Add failed count
                 "total_students": total_students,
                 "created_at": assigned_course.created_at.isoformat() if assigned_course.created_at else None,
                 "updated_at": assigned_course.updated_at.isoformat() if assigned_course.updated_at else None
@@ -190,6 +198,9 @@ def get_faculty_courses(db: Session, current_faculty: Dict[str, Any]) -> Dict[st
                     "course_count": 0,
                     "total_enrolled": 0,
                     "total_pending": 0,
+                    "total_rejected": 0,  # Add rejected summary
+                    "total_passed": 0,    # Add passed summary
+                    "total_failed": 0,    # Add failed summary
                     "total_students": 0,
                     "semester_order": get_semester_order(semester_key)  # Add order for frontend sorting
                 }
@@ -197,6 +208,9 @@ def get_faculty_courses(db: Session, current_faculty: Dict[str, Any]) -> Dict[st
             semester_summary[year_key][semester_key]["course_count"] += 1
             semester_summary[year_key][semester_key]["total_enrolled"] += enrollment_count
             semester_summary[year_key][semester_key]["total_pending"] += pending_count
+            semester_summary[year_key][semester_key]["total_rejected"] += rejected_count  # Add to summary
+            semester_summary[year_key][semester_key]["total_passed"] += passed_count      # Add to summary
+            semester_summary[year_key][semester_key]["total_failed"] += failed_count      # Add to summary
             semester_summary[year_key][semester_key]["total_students"] += total_students
         
         # Sort semester_summary by year (descending) and semester order (Summer > 3rd > 2nd > 1st)
