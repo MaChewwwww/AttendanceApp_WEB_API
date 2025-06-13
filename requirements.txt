@@ -31,7 +31,3 @@ dlib==19.24.9
 python-dotenv==1.1.0
 requests==2.31.0
 setuptools>=65.0.0
-
-# Fix for face_recognition pkg_resources issue
-setuptools>=65.0.0
-pkg_resources

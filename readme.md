@@ -5,10 +5,16 @@ A FastAPI-based web API for the AttendanceApp, providing REST endpoints for atte
 ## Quick Start
 
 ```bash
+# Create and activate virtual environment
+python -m venv venv
+venv\Scripts\activate
+
 # Install dependencies
 pip install -r requirements.txt
 
 # If you encounter face_recognition installation issues on Windows:
+pip install --upgrade setuptools
+pip install pip-tools
 pip install setuptools pkg_resources
 pip install https://github.com/jloh02/dlib/releases/download/v19.22/dlib-19.22.0-cp312-cp312-win_amd64.whl
 

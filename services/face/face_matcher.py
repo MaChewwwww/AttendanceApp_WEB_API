@@ -54,7 +54,8 @@ def detect_face_spoofing(image: np.ndarray) -> Tuple[bool, str]:
         # TECHNIQUE 1: SHARPNESS ANALYSIS
         # Real faces have natural texture and sharpness variations
         # Photos of photos tend to be blurry due to double compression
-        laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+        laplacian = cv2.Laplacian(gray, cv2.CV_64F)
+        laplacian_var = float(np.var(laplacian.astype(np.float64)))
         if laplacian_var < 100:  # Threshold determined through testing
             return False, "Image too blurry"
         
@@ -63,7 +64,8 @@ def detect_face_spoofing(image: np.ndarray) -> Tuple[bool, str]:
         # These patterns are visible when photographing a screen
         kernel = np.array([[-1,-1,-1], [-1,8,-1], [-1,-1,-1]])  # High-pass filter
         high_freq = cv2.filter2D(gray, -1, kernel)
-        high_freq_var = np.var(high_freq)
+        # Fix: Explicit type conversion for variance calculation
+        high_freq_var = float(np.var(high_freq.astype(np.float64)))
         
         if high_freq_var > 2000:  # High variance indicates screen artifacts
             return False, "Screen display detected"
@@ -74,7 +76,9 @@ def detect_face_spoofing(image: np.ndarray) -> Tuple[bool, str]:
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         hist_h = cv2.calcHist([hsv], [0], None, [180], [0, 180])
         
-        color_peaks = np.sum(hist_h > np.mean(hist_h) * 3)
+        # Fix: Explicit type conversion for mean calculation
+        hist_mean = float(np.mean(hist_h.astype(np.float64)))
+        color_peaks = np.sum(hist_h > hist_mean * 3)
         if color_peaks < 5:  # Too few color peaks indicates digital display
             return False, "Digital display detected"
         
@@ -95,14 +99,15 @@ def detect_face_spoofing(image: np.ndarray) -> Tuple[bool, str]:
         # TECHNIQUE 5: LIGHTING CONSISTENCY ANALYSIS
         # Real faces have natural lighting variations and shadows
         # Artificial/uniform lighting indicates digital display or printed photo
-        brightness_std = np.std(gray)
+        # Fix: Explicit type conversion for std calculation
+        brightness_std = float(np.std(gray.astype(np.float64)))
         if brightness_std < 20:  # Too uniform lighting
             return False, "Artificial lighting detected"
         
         # TECHNIQUE 6: JPEG COMPRESSION ARTIFACT DETECTION
         # Digital photos have specific frequency domain patterns from JPEG compression
         # These patterns form block structures that can be detected
-        f_transform = np.fft.fft2(gray)  # Fourier transform
+        f_transform = np.fft.fft2(gray.astype(np.float64))  # Fix: Explicit type conversion for FFT
         f_shift = np.fft.fftshift(f_transform)  # Shift zero frequency to center
         magnitude = np.abs(f_shift)
         
