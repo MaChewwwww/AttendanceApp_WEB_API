@@ -1,91 +1,152 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import func, select, join, and_, or_, case
-from typing import Dict, List, Any
-from datetime import datetime
+from sqlalchemy import func, and_, desc, case
 from models import (
-    User, Faculty, Assigned_Course, Course, Section, Program,
-    Assigned_Course_Approval, AttendanceLog, Status, Student
+    Assigned_Course, Course, Section, Program, Faculty, User, Student, 
+    Assigned_Course_Approval
 )
+from typing import Dict, Any, List
+from datetime import datetime, date
 
-def get_faculty_courses(db: Session, faculty_data: Dict[str, Any]) -> Dict[str, Any]:
+def get_faculty_courses(db: Session, current_faculty: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Get all courses assigned to a faculty member with detailed information
+    Get all courses assigned to the faculty with student enrollment counts.
     
     Args:
         db: Database session
-        faculty_data: Faculty user data from JWT token
+        current_faculty: Current faculty user data from JWT
         
     Returns:
-        Dictionary with faculty courses data formatted for FacultyCoursesResponse
+        Dict containing faculty courses with student counts and grouping by semester
     """
     try:
-        user_id = faculty_data.get('user_id')
-        if not user_id:
-            raise ValueError("Invalid faculty data - user_id not found")
+        print(f"=== FACULTY COURSES DEBUG ===")
+        print(f"Faculty User ID: {current_faculty.get('user_id')}")
         
         # Get faculty record
-        faculty = db.query(Faculty).filter(Faculty.user_id == user_id).first()
-        if not faculty:
-            raise ValueError("Faculty record not found")
+        faculty_query = db.query(Faculty).filter(Faculty.user_id == current_faculty["user_id"]).first()
+        if not faculty_query:
+            return {"error": "Faculty not found"}
         
-        # Get user record
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user:
-            raise ValueError("User record not found")
+        faculty_user_id = current_faculty["user_id"]
+        print(f"Faculty User ID for query: {faculty_user_id}")
         
-        # Get latest academic year/semester
-        latest = db.query(Assigned_Course).filter(
-            Assigned_Course.faculty_id == user_id,
-            Assigned_Course.isDeleted == 0
-        ).order_by(
-            Assigned_Course.academic_year.desc(),
-            Assigned_Course.semester.desc()
-        ).first()
+        # Define semester order (latest to oldest: Summer > 3rd > 2nd > 1st)
+        def get_semester_order(semester):
+            semester_order = {
+                "Summer": 4,
+                "3rd Semester": 3,
+                "2nd Semester": 2,
+                "1st Semester": 1,
+                "summer": 4,  # Handle case variations
+                "3rd semester": 3,
+                "2nd semester": 2,
+                "1st semester": 1,
+                "3rd": 3,
+                "2nd": 2,
+                "1st": 1,
+                "Third": 3,
+                "Second": 2,
+                "First": 1
+            }
+            return semester_order.get(semester, 0)  # Default to 0 for unknown semesters
         
-        current_academic_year = latest.academic_year if latest else None
-        current_semester = latest.semester if latest else None
-        
-        # Query all assigned courses with joins
-        courses = db.query(
-            Assigned_Course, Course, Section, Program
+        # Get all courses assigned to this faculty with course, section, and program info
+        courses_query = db.query(
+            Assigned_Course,
+            Course,
+            Section,
+            Program
         ).join(
-            Course, Assigned_Course.course_id == Course.id
+            Course, Course.id == Assigned_Course.course_id
         ).join(
-            Section, Assigned_Course.section_id == Section.id
+            Section, Section.id == Assigned_Course.section_id
         ).join(
-            Program, Course.program_id == Program.id
+            Program, Program.id == Section.program_id
         ).filter(
-            Assigned_Course.faculty_id == user_id,
-            Assigned_Course.isDeleted == 0,
-            Course.isDeleted == 0,
-            Section.isDeleted == 0,
-            Program.isDeleted == 0
+            and_(
+                Assigned_Course.faculty_id == faculty_user_id,  # faculty_id references users.id
+                Assigned_Course.isDeleted == 0,
+                Course.isDeleted == 0,
+                Section.isDeleted == 0,
+                Program.isDeleted == 0
+            )
         ).all()
         
-        # Prepare course lists and summary
+        # Sort by academic year (desc) and semester order (Summer > 3rd > 2nd > 1st)
+        courses_query = sorted(courses_query, key=lambda x: (
+            -(int(x[0].academic_year.split('-')[0]) if x[0].academic_year and '-' in x[0].academic_year else 0),
+            -get_semester_order(x[0].semester or "")
+        ))
+        
+        print(f"Found {len(courses_query)} assigned courses")
+        
+        # Prepare faculty information
+        faculty_info = {
+            "faculty_id": faculty_query.id,
+            "user_id": faculty_user_id,
+            "name": f"{current_faculty.get('first_name', '')} {current_faculty.get('last_name', '')}".strip(),
+            "email": current_faculty.get("email"),
+            "employee_number": faculty_query.employee_number
+        }
+        
         current_courses = []
         previous_courses = []
         semester_summary = {}
         
-        for assigned, course, section, program in courses:
-            # Get enrollment counts
-            enrollment_counts = db.query(
-                func.count().label('total'),
-                func.sum(case((Assigned_Course_Approval.status == 'enrolled', 1), else_=0)).label('enrolled'),
-                func.sum(case((Assigned_Course_Approval.status == 'pending', 1), else_=0)).label('pending')
-            ).filter(
-                Assigned_Course_Approval.assigned_course_id == assigned.id
-            ).first()
+        # Find the latest academic year and semester from the faculty's courses
+        latest_academic_year = None
+        latest_semester = None
+        latest_semester_order = 0
+        
+        if courses_query:
+            # First pass: find the latest academic year and semester
+            for assigned_course, course, section, program in courses_query:
+                if assigned_course.academic_year:
+                    current_year = assigned_course.academic_year
+                    current_semester = assigned_course.semester or ""
+                    current_semester_order = get_semester_order(current_semester)
+                    
+                    # Compare to find the absolute latest
+                    if latest_academic_year is None:
+                        latest_academic_year = current_year
+                        latest_semester = current_semester
+                        latest_semester_order = current_semester_order
+                    else:
+                        # Compare academic years first
+                        latest_year_start = int(latest_academic_year.split('-')[0]) if '-' in latest_academic_year else 0
+                        current_year_start = int(current_year.split('-')[0]) if '-' in current_year else 0
+                        
+                        if (current_year_start > latest_year_start or 
+                            (current_year_start == latest_year_start and current_semester_order > latest_semester_order)):
+                            latest_academic_year = current_year
+                            latest_semester = current_semester
+                            latest_semester_order = current_semester_order
+        
+        print(f"✓ Latest academic year: {latest_academic_year}, Latest semester: {latest_semester}")
+        
+        for assigned_course, course, section, program in courses_query:
+            print(f"Processing course: {course.name} - {section.name} ({assigned_course.academic_year}, {assigned_course.semester})")
             
-            # Get total students in section
-            total_students = db.query(func.count(Student.id)).filter(
-                Student.section == section.id,
-                Student.user_id == User.id,
-                User.isDeleted == 0
-            ).scalar()
+            # Count students in each enrollment status for this specific course
+            enrollment_counts = db.query(
+                Assigned_Course_Approval.status,
+                func.count(Assigned_Course_Approval.id).label("count")
+            ).filter(
+                Assigned_Course_Approval.assigned_course_id == assigned_course.id
+            ).group_by(Assigned_Course_Approval.status).all()
+            
+            # Convert to dictionary
+            status_counts = {status: count for status, count in enrollment_counts}
+            
+            enrollment_count = status_counts.get("enrolled", 0)
+            pending_count = status_counts.get("pending", 0)
+            rejected_count = status_counts.get("rejected", 0)
+            total_students = enrollment_count + pending_count + rejected_count
+            
+            print(f"  Student counts: {enrollment_count} enrolled, {pending_count} pending, {rejected_count} rejected")
             
             course_info = {
-                "assigned_course_id": assigned.id,
+                "assigned_course_id": assigned_course.id,
                 "course_id": course.id,
                 "course_name": course.name,
                 "course_code": course.code,
@@ -95,63 +156,76 @@ def get_faculty_courses(db: Session, faculty_data: Dict[str, Any]) -> Dict[str, 
                 "program_id": program.id,
                 "program_name": program.name,
                 "program_acronym": program.acronym,
-                "academic_year": assigned.academic_year,
-                "semester": assigned.semester,
-                "room": assigned.room,
-                "enrollment_count": enrollment_counts.enrolled or 0,
-                "pending_count": enrollment_counts.pending or 0,
-                "total_students": total_students or 0,
-                "created_at": assigned.created_at.isoformat() if assigned.created_at else None,
-                "updated_at": assigned.updated_at.isoformat() if assigned.updated_at else None
+                "academic_year": assigned_course.academic_year,
+                "semester": assigned_course.semester,
+                "room": assigned_course.room,
+                "enrollment_count": enrollment_count,
+                "pending_count": pending_count,
+                "total_students": total_students,
+                "created_at": assigned_course.created_at.isoformat() if assigned_course.created_at else None,
+                "updated_at": assigned_course.updated_at.isoformat() if assigned_course.updated_at else None
             }
             
-            # Track semester summary - using strings throughout to avoid type conflicts
-            sem_key = f"{assigned.academic_year}-{assigned.semester}"
-            if sem_key not in semester_summary:
-                semester_summary[sem_key] = {
-                    "total_courses": 0,
-                    "total_students": 0,
-                    "academic_year": assigned.academic_year,  # Keep as string
-                    "semester": assigned.semester            # Keep as string
-                }
-            semester_summary[sem_key]["total_courses"] += 1
-            semester_summary[sem_key]["total_students"] += enrollment_counts.enrolled or 0
+            # Determine if this is current or previous course based on latest found
+            course_semester_order = get_semester_order(assigned_course.semester or "")
+            is_current = (assigned_course.academic_year == latest_academic_year and 
+                         assigned_course.semester == latest_semester)
             
-            # Sort into current/previous courses
-            if (assigned.academic_year == current_academic_year and 
-                assigned.semester == current_semester):
+            if is_current:
                 current_courses.append(course_info)
+                print(f"  -> Added to CURRENT courses")
             else:
                 previous_courses.append(course_info)
+                print(f"  -> Added to PREVIOUS courses")
+
+            # Update semester summary with proper ordering
+            year_key = assigned_course.academic_year or "Unknown"
+            semester_key = assigned_course.semester or "Unknown"
+            
+            if year_key not in semester_summary:
+                semester_summary[year_key] = {}
+            
+            if semester_key not in semester_summary[year_key]:
+                semester_summary[year_key][semester_key] = {
+                    "course_count": 0,
+                    "total_enrolled": 0,
+                    "total_pending": 0,
+                    "total_students": 0,
+                    "semester_order": get_semester_order(semester_key)  # Add order for frontend sorting
+                }
+            
+            semester_summary[year_key][semester_key]["course_count"] += 1
+            semester_summary[year_key][semester_key]["total_enrolled"] += enrollment_count
+            semester_summary[year_key][semester_key]["total_pending"] += pending_count
+            semester_summary[year_key][semester_key]["total_students"] += total_students
         
-        # Sort courses by creation date
-        current_courses.sort(key=lambda x: x["created_at"] or "", reverse=True)
-        previous_courses.sort(key=lambda x: x["created_at"] or "", reverse=True)
+        # Sort semester_summary by year (descending) and semester order (Summer > 3rd > 2nd > 1st)
+        sorted_semester_summary = {}
+        for year in sorted(semester_summary.keys(), key=lambda x: (
+            -(int(x.split('-')[0]) if x != "Unknown" and '-' in x else 0)
+        )):
+            sorted_semester_summary[year] = {}
+            for semester in sorted(semester_summary[year].keys(), 
+                                 key=lambda x: -semester_summary[year][x]["semester_order"]):
+                sorted_semester_summary[year][semester] = semester_summary[year][semester]
+        
+        print(f"✓ Current courses: {len(current_courses)}")
+        print(f"✓ Previous courses: {len(previous_courses)}")
+        print(f"✓ Semester summary (ordered): {sorted_semester_summary}")
         
         return {
             "success": True,
             "message": "Faculty courses retrieved successfully",
-            "faculty_info": {
-                "user_id": user.id,
-                "name": f"{user.first_name} {user.last_name}",
-                "email": user.email,
-                "employee_number": faculty.employee_number,
-                "role": user.role,
-                "verified": user.verified,
-                "status_id": user.status_id,
-                "current_academic_year": current_academic_year,
-                "current_semester": current_semester,
-                "total_assigned_courses": len(courses)
-            },
+            "faculty_info": faculty_info,
             "current_courses": current_courses,
             "previous_courses": previous_courses,
             "total_current": len(current_courses),
             "total_previous": len(previous_courses),
-            "semester_summary": semester_summary
+            "semester_summary": sorted_semester_summary
         }
         
     except Exception as e:
-        print(f"Error in get_faculty_courses: {e}")
+        print(f"Error in get_faculty_courses: {str(e)}")
         import traceback
         traceback.print_exc()
-        raise
+        return {"error": f"Database error: {str(e)}"}
