@@ -1,8 +1,8 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, desc
+from sqlalchemy import func, and_, desc, case
 from models import (
     Assigned_Course, Course, Section, Program, Faculty, User, Student, 
-    Assigned_Course_Approval, Attendance
+    Assigned_Course_Approval, AttendanceLog
 )
 from typing import Dict, Any, List
 from datetime import datetime, date
@@ -20,51 +20,70 @@ def get_faculty_course_details(db: Session, current_faculty: Dict[str, Any], ass
         Dict containing course details, students, and attendance data
     """
     try:
-        # Get faculty ID from the current faculty data
+        print(f"=== FACULTY COURSE DETAILS DEBUG ===")
+        print(f"Faculty User ID: {current_faculty.get('user_id')}")
+        print(f"Assigned Course ID: {assigned_course_id}")
+        
+        # Get faculty record from the current faculty data
         faculty_query = db.query(Faculty).filter(Faculty.user_id == current_faculty["user_id"]).first()
         if not faculty_query:
+            print("ERROR: Faculty record not found in database")
             return {"error": "Faculty not found"}
         
-        faculty_id = faculty_query.faculty_id
+        faculty_user_id = current_faculty["user_id"]  # Use user_id since Assigned_Course.faculty_id references users.id
+        print(f"Faculty User ID for query: {faculty_user_id}")
         
         # Get course information and verify faculty ownership
+        # Note: Assigned_Course.faculty_id references users.id, not faculties.id
         course_query = db.query(
             Assigned_Course,
             Course,
             Section,
             Program,
-            Faculty,
-            User
+            User.id.label("faculty_user_id"),
+            User.first_name.label("faculty_first_name"),
+            User.last_name.label("faculty_last_name"),
+            User.email.label("faculty_email")
         ).join(
-            Course, Course.course_id == Assigned_Course.course_id
+            Course, Course.id == Assigned_Course.course_id
         ).join(
-            Section, Section.section_id == Assigned_Course.section_id
+            Section, Section.id == Assigned_Course.section_id
         ).join(
-            Program, Program.program_id == Section.program_id
+            Program, Program.id == Section.program_id
         ).join(
-            Faculty, Faculty.faculty_id == Assigned_Course.faculty_id
-        ).join(
-            User, User.user_id == Faculty.user_id
+            User, User.id == Assigned_Course.faculty_id  # faculty_id references users.id
         ).filter(
             and_(
-                Assigned_Course.assigned_course_id == assigned_course_id,
-                Assigned_Course.faculty_id == faculty_id,
+                Assigned_Course.id == assigned_course_id,
+                Assigned_Course.faculty_id == faculty_user_id,  # Use user_id directly
                 Assigned_Course.isDeleted == 0
             )
         ).first()
         
         if not course_query:
+            print("ERROR: Course not found or no permission")
+            print(f"Looking for: assigned_course_id={assigned_course_id}, faculty_id={faculty_user_id}")
+            # Debug: Check what courses this faculty has
+            debug_courses = db.query(Assigned_Course).filter(
+                Assigned_Course.faculty_id == faculty_user_id
+            ).all()
+            print(f"Faculty has {len(debug_courses)} courses: {[c.id for c in debug_courses]}")
             return {"error": "Course not found or you don't have permission to access this course"}
         
-        assigned_course, course, section, program, faculty, faculty_user = course_query
+        (assigned_course, course, section, program, 
+         faculty_user_id, faculty_first_name, faculty_last_name, faculty_email) = course_query
+        
+        print(f"✓ Course found: {course.name} ({course.code})")
+        print(f"✓ Section: {section.name}")
+        print(f"✓ Program: {program.name}")
         
         # Prepare course information
         course_info = {
-            "assigned_course_id": assigned_course.assigned_course_id,
-            "course_id": course.course_id,
-            "course_name": course.course_name,
-            "course_code": course.course_code,
-            "course_description": course.course_description,
+            "assigned_course_id": assigned_course.id,
+            "course_id": course.id,
+            "course_name": course.name,
+            "course_code": course.code,
+            "course_description": course.description,
             "academic_year": assigned_course.academic_year,
             "semester": assigned_course.semester,
             "room": assigned_course.room,
@@ -74,72 +93,157 @@ def get_faculty_course_details(db: Session, current_faculty: Dict[str, Any], ass
         
         # Prepare section information
         section_info = {
-            "section_id": section.section_id,
-            "section_name": section.section_name,
-            "year_level": section.year_level,
-            "max_students": section.max_students
+            "section_id": section.id,
+            "section_name": section.name,
+            "program_id": section.program_id,
+            "program_name": program.name,
+            "program_acronym": program.acronym
         }
         
         # Prepare faculty information
         faculty_info = {
-            "faculty_id": faculty.faculty_id,
-            "user_id": faculty_user.user_id,
-            "name": f"{faculty_user.first_name} {faculty_user.last_name}",
-            "email": faculty_user.email,
-            "employee_number": faculty.employee_number
+            "faculty_id": faculty_query.id,
+            "user_id": faculty_user_id,
+            "name": f"{faculty_first_name} {faculty_last_name}",
+            "email": faculty_email,
+            "employee_number": faculty_query.employee_number
         }
         
+        print(f"✓ Faculty info prepared: {faculty_info['name']}")
+        
         # Get all students in this course with their enrollment status
+        print(f"=== DEBUGGING STUDENT ENROLLMENT QUERY ===")
+        print(f"Looking for enrollments in assigned_course_id: {assigned_course_id}")
+        
+        # First, let's check if there are any assigned_course_approval records for this course
+        approval_count = db.query(func.count(Assigned_Course_Approval.id)).filter(
+            Assigned_Course_Approval.assigned_course_id == assigned_course_id
+        ).scalar()
+        print(f"Total assigned_course_approval records for this course: {approval_count}")
+        
+        # Check what approval records exist
+        approval_records = db.query(Assigned_Course_Approval).filter(
+            Assigned_Course_Approval.assigned_course_id == assigned_course_id
+        ).all()
+        print(f"Approval records found: {len(approval_records)}")
+        for approval in approval_records:
+            print(f"  - Student ID: {approval.student_id}, Status: {approval.status}")
+        
+        # Check if students exist for these student_ids
+        if approval_records:
+            student_ids = [approval.student_id for approval in approval_records]
+            existing_students = db.query(Student).filter(Student.id.in_(student_ids)).all()
+            print(f"Students found for these IDs: {len(existing_students)}")
+            for student in existing_students:
+                user = db.query(User).filter(User.id == student.user_id).first()
+                print(f"  - Student {student.id}: {user.first_name} {user.last_name} (User ID: {student.user_id}, isDeleted: {user.isDeleted})")
+        
+        # Let's also check who has attendance records for this course
+        attendance_users = db.query(
+            AttendanceLog.user_id,
+            func.count(AttendanceLog.id).label("attendance_count")
+        ).filter(
+            AttendanceLog.assigned_course_id == assigned_course_id
+        ).group_by(AttendanceLog.user_id).all()
+        
+        print(f"Users with attendance records: {len(attendance_users)}")
+        for user_id, count in attendance_users:
+            user = db.query(User).filter(User.id == user_id).first()
+            student = db.query(Student).filter(Student.user_id == user_id).first()
+            print(f"  - User {user_id}: {user.first_name} {user.last_name} (Student ID: {student.id if student else 'None'}, Attendance: {count})")
+        
+        # Try to get students from approval records first
         students_query = db.query(
             Student,
             User,
             Assigned_Course_Approval
         ).join(
-            User, User.user_id == Student.user_id
+            User, User.id == Student.user_id
         ).join(
             Assigned_Course_Approval, 
-            Assigned_Course_Approval.student_id == Student.student_id
+            Assigned_Course_Approval.student_id == Student.id
         ).filter(
             and_(
                 Assigned_Course_Approval.assigned_course_id == assigned_course_id,
-                Student.isDeleted == 0,
-                User.isDeleted == 0
+                User.isDeleted == 0  # Only filter User.isDeleted, Student doesn't have isDeleted
             )
         ).all()
         
+        print(f"Students from approval records: {len(students_query)} students")
+        
+        # If no approval records exist, get students from attendance records
+        if len(students_query) == 0 and len(attendance_users) > 0:
+            print("No approval records found, getting students from attendance records...")
+            
+            # Get students who have submitted attendance for this course
+            attendance_students_query = db.query(
+                Student,
+                User
+            ).join(
+                User, User.id == Student.user_id
+            ).join(
+                AttendanceLog, AttendanceLog.user_id == User.id
+            ).filter(
+                and_(
+                    AttendanceLog.assigned_course_id == assigned_course_id,
+                    User.isDeleted == 0
+                )
+            ).distinct().all()
+            
+            print(f"Students from attendance records: {len(attendance_students_query)} students")
+            
+            # Convert to the expected format for processing
+            students_query = []
+            for student, user in attendance_students_query:
+                # Create a mock approval record for students found in attendance
+                mock_approval = type('MockApproval', (), {
+                    'status': 'attending',  # Special status for students without formal approval
+                    'rejection_reason': None,
+                    'created_at': None,
+                    'updated_at': None
+                })()
+                students_query.append((student, user, mock_approval))
+        
+        print(f"Final students_query result: {len(students_query)} students")
+        print("=== END DEBUGGING STUDENT ENROLLMENT QUERY ===")
+
         # Process students by enrollment status
         enrolled_students = []
         pending_students = []
         rejected_students = []
+        attending_students = []  # New category for students without formal approval
         
         enrollment_summary = {
             "enrolled": 0,
             "pending": 0,
             "rejected": 0,
+            "attending": 0,  # Students with attendance but no approval
             "total": 0
         }
         
         for student, user, approval in students_query:
-            # Get attendance summary for this student
+            print(f"Processing student: {user.first_name} {user.last_name} ({student.student_number}) - Status: {approval.status}")
+            
+            # Get attendance summary for this student using correct syntax
             attendance_stats = db.query(
-                func.count(Attendance.attendance_id).label("total_sessions"),
-                func.sum(func.case([(Attendance.status == "present", 1)], else_=0)).label("present_count"),
-                func.sum(func.case([(Attendance.status == "absent", 1)], else_=0)).label("absent_count"),
-                func.sum(func.case([(Attendance.status == "late", 1)], else_=0)).label("late_count")
+                func.count(AttendanceLog.id).label("total_sessions"),
+                func.sum(case((AttendanceLog.status == "present", 1), else_=0)).label("present_count"),
+                func.sum(case((AttendanceLog.status == "absent", 1), else_=0)).label("absent_count"),
+                func.sum(case((AttendanceLog.status == "late", 1), else_=0)).label("late_count")
             ).filter(
                 and_(
-                    Attendance.student_id == student.student_id,
-                    Attendance.assigned_course_id == assigned_course_id
+                    AttendanceLog.user_id == user.id,  # AttendanceLog uses user_id
+                    AttendanceLog.assigned_course_id == assigned_course_id
                 )
             ).first()
             
             # Get latest attendance
-            latest_attendance = db.query(Attendance).filter(
+            latest_attendance = db.query(AttendanceLog).filter(
                 and_(
-                    Attendance.student_id == student.student_id,
-                    Attendance.assigned_course_id == assigned_course_id
+                    AttendanceLog.user_id == user.id,
+                    AttendanceLog.assigned_course_id == assigned_course_id
                 )
-            ).order_by(desc(Attendance.attendance_date), desc(Attendance.created_at)).first()
+            ).order_by(desc(AttendanceLog.date), desc(AttendanceLog.created_at)).first()
             
             # Calculate statistics
             total_sessions = attendance_stats.total_sessions or 0
@@ -156,9 +260,11 @@ def get_faculty_course_details(db: Session, current_faculty: Dict[str, Any], ass
             # Determine failed status (you can adjust this logic)
             failed_count = 1 if attendance_percentage < 75 else 0  # 75% minimum attendance requirement
             
+            print(f"  Attendance: {present_count}P + {late_count}L + {absent_count}A = {total_sessions} total ({attendance_percentage}%)")
+            
             student_info = {
-                "student_id": student.student_id,
-                "user_id": user.user_id,
+                "student_id": student.id,
+                "user_id": user.id,
                 "student_number": student.student_number,
                 "name": f"{user.first_name} {user.last_name}",
                 "email": user.email,
@@ -172,7 +278,7 @@ def get_faculty_course_details(db: Session, current_faculty: Dict[str, Any], ass
                 "late_count": late_count,
                 "failed_count": failed_count,
                 "attendance_percentage": attendance_percentage,
-                "latest_attendance_date": latest_attendance.attendance_date.isoformat() if latest_attendance and latest_attendance.attendance_date else None,
+                "latest_attendance_date": latest_attendance.date.isoformat() if latest_attendance and latest_attendance.date else None,
                 "latest_attendance_status": latest_attendance.status if latest_attendance else None
             }
             
@@ -186,70 +292,77 @@ def get_faculty_course_details(db: Session, current_faculty: Dict[str, Any], ass
             elif approval.status == "rejected":
                 rejected_students.append(student_info)
                 enrollment_summary["rejected"] += 1
+            elif approval.status == "attending":
+                attending_students.append(student_info)
+                enrollment_summary["attending"] += 1
             
             enrollment_summary["total"] += 1
         
-        # Get recent attendance records (last 10 records)
+        print(f"✓ Enrollment summary: {enrollment_summary}")
+
+        # Get recent attendance records (last 20 records)
         recent_attendance_query = db.query(
-            Attendance,
+            AttendanceLog,
             Student,
             User
         ).join(
-            Student, Student.student_id == Attendance.student_id
+            User, User.id == AttendanceLog.user_id
         ).join(
-            User, User.user_id == Student.user_id
+            Student, Student.user_id == User.id
         ).filter(
-            Attendance.assigned_course_id == assigned_course_id
+            AttendanceLog.assigned_course_id == assigned_course_id
         ).order_by(
-            desc(Attendance.attendance_date),
-            desc(Attendance.created_at)
+            desc(AttendanceLog.date),
+            desc(AttendanceLog.created_at)
         ).limit(20).all()
+        
+        print(f"✓ Found {len(recent_attendance_query)} recent attendance records")
         
         recent_attendance = []
         for attendance, student, user in recent_attendance_query:
             recent_attendance.append({
-                "attendance_id": attendance.attendance_id,
-                "student_id": student.student_id,
+                "attendance_id": attendance.id,
+                "student_id": student.id,
                 "student_name": f"{user.first_name} {user.last_name}",
                 "student_number": student.student_number,
-                "attendance_date": attendance.attendance_date.isoformat() if attendance.attendance_date else None,
+                "attendance_date": attendance.date.isoformat() if attendance.date else None,
                 "status": attendance.status,
-                "has_image": bool(attendance.face_image),
+                "has_image": bool(attendance.image),
                 "created_at": attendance.created_at.isoformat() if attendance.created_at else None,
                 "updated_at": attendance.updated_at.isoformat() if attendance.updated_at else None
             })
         
         # Calculate overall attendance summary
-        total_attendance_records = db.query(func.count(Attendance.attendance_id)).filter(
-            Attendance.assigned_course_id == assigned_course_id
+        total_attendance_records = db.query(func.count(AttendanceLog.id)).filter(
+            AttendanceLog.assigned_course_id == assigned_course_id
         ).scalar() or 0
         
-        overall_present = db.query(func.count(Attendance.attendance_id)).filter(
+        overall_present = db.query(func.count(AttendanceLog.id)).filter(
             and_(
-                Attendance.assigned_course_id == assigned_course_id,
-                Attendance.status == "present"
+                AttendanceLog.assigned_course_id == assigned_course_id,
+                AttendanceLog.status == "present"
             )
         ).scalar() or 0
         
-        overall_late = db.query(func.count(Attendance.attendance_id)).filter(
+        overall_late = db.query(func.count(AttendanceLog.id)).filter(
             and_(
-                Attendance.assigned_course_id == assigned_course_id,
-                Attendance.status == "late"
+                AttendanceLog.assigned_course_id == assigned_course_id,
+                AttendanceLog.status == "late"
             )
         ).scalar() or 0
         
-        overall_absent = db.query(func.count(Attendance.attendance_id)).filter(
+        overall_absent = db.query(func.count(AttendanceLog.id)).filter(
             and_(
-                Attendance.assigned_course_id == assigned_course_id,
-                Attendance.status == "absent"
+                AttendanceLog.assigned_course_id == assigned_course_id,
+                AttendanceLog.status == "absent"
             )
         ).scalar() or 0
         
-        # Get total unique attendance sessions
+        # Get total unique attendance sessions using correct field name
         total_sessions = db.query(
-            func.count(func.distinct(Attendance.attendance_date))
+            func.count(func.distinct(AttendanceLog.date))
         ).filter(
-            Attendance.assigned_course_id == assigned_course_id
+            AttendanceLog.assigned_course_id == assigned_course_id
         ).scalar() or 0
         
         attendance_summary = {
@@ -261,6 +374,9 @@ def get_faculty_course_details(db: Session, current_faculty: Dict[str, Any], ass
             "overall_attendance_rate": round((overall_present + overall_late) / total_attendance_records * 100, 2) if total_attendance_records > 0 else 0.0
         }
         
+        print(f"✓ Attendance summary: {attendance_summary}")
+        print("=== FACULTY COURSE DETAILS SUCCESS ===")
+        
         return {
             "success": True,
             "message": "Course details retrieved successfully",
@@ -270,6 +386,7 @@ def get_faculty_course_details(db: Session, current_faculty: Dict[str, Any], ass
             "enrolled_students": enrolled_students,
             "pending_students": pending_students,
             "rejected_students": rejected_students,
+            "attending_students": attending_students,  # Add this new category
             "enrollment_summary": enrollment_summary,
             "attendance_summary": attendance_summary,
             "recent_attendance": recent_attendance,
@@ -280,5 +397,8 @@ def get_faculty_course_details(db: Session, current_faculty: Dict[str, Any], ass
         }
         
     except Exception as e:
-        print(f"Error in get_faculty_course_details: {str(e)}")
+        print(f"ERROR in get_faculty_course_details: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return {"error": f"Database error: {str(e)}"}
+

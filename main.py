@@ -476,6 +476,7 @@ class FacultyCourseDetailsResponse(BaseModel):
     enrolled_students: List[FacultyCourseStudentInfo]
     pending_students: List[FacultyCourseStudentInfo]
     rejected_students: List[FacultyCourseStudentInfo]
+    attending_students: List[FacultyCourseStudentInfo]  # Students with attendance but no formal approval
     
     # Statistics summary
     enrollment_summary: Dict[str, int]

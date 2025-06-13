@@ -31,6 +31,7 @@ try:
     Section = desktop_models.Section
     Program = desktop_models.Program
     AttendanceLog = desktop_models.AttendanceLog
+    Attendance = desktop_models.AttendanceLog  # Alias for API consistency
     Assigned_Course = desktop_models.Assigned_Course
     Status = desktop_models.Status  # Added Status model
     
