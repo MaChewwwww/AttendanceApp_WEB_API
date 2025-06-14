@@ -69,7 +69,7 @@ def get_student_dashboard_data(db: Session, current_student: Dict[str, Any]) -> 
         
         section, program = section_info
         
-        # First, get the latest academic year and semester for this student's enrolled courses (exclude "passed")
+        # First, get the latest academic year and semester for this student's enrolled courses)
         latest_semester_query = db.query(
             Assigned_Course.academic_year,
             Assigned_Course.semester
@@ -78,7 +78,7 @@ def get_student_dashboard_data(db: Session, current_student: Dict[str, Any]) -> 
         ).filter(
             and_(
                 Assigned_Course_Approval.student_id == student_record.id,
-                Assigned_Course_Approval.status == "enrolled",  # Only enrolled, exclude passed
+                Assigned_Course_Approval.status == "enrolled",  # Only enrolled
                 Assigned_Course.section_id == section_id,
                 Assigned_Course.isDeleted == 0
             )
@@ -97,7 +97,7 @@ def get_student_dashboard_data(db: Session, current_student: Dict[str, Any]) -> 
         else:
             print("DEBUG: No enrolled courses found for student")
         
-        # Get current enrolled courses (only for the latest academic year and semester, exclude "passed")
+        # Get current enrolled courses (only for the latest academic year and semester)
         enrolled_courses_query = db.query(
             Assigned_Course_Approval.id.label("approval_id"),
             Assigned_Course_Approval.status.label("enrollment_status"),
@@ -121,7 +121,7 @@ def get_student_dashboard_data(db: Session, current_student: Dict[str, Any]) -> 
         ).filter(
             and_(
                 Assigned_Course_Approval.student_id == student_record.id,
-                Assigned_Course_Approval.status == "enrolled",  # Only enrolled courses, exclude passed
+                Assigned_Course_Approval.status == "enrolled",  # Only enrolled courses
                 Assigned_Course.section_id == section_id,
                 Assigned_Course.academic_year == current_academic_year,  # Filter by latest academic year
                 Assigned_Course.semester == current_semester,  # Filter by latest semester
