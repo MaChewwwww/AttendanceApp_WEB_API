@@ -69,7 +69,35 @@ def get_student_dashboard_data(db: Session, current_student: Dict[str, Any]) -> 
         
         section, program = section_info
         
-        # Get current enrolled courses (exclude "passed" courses)
+        # First, get the latest academic year and semester for this student's enrolled courses (exclude "passed")
+        latest_semester_query = db.query(
+            Assigned_Course.academic_year,
+            Assigned_Course.semester
+        ).select_from(Assigned_Course_Approval).join(
+            Assigned_Course, Assigned_Course_Approval.assigned_course_id == Assigned_Course.id
+        ).filter(
+            and_(
+                Assigned_Course_Approval.student_id == student_record.id,
+                Assigned_Course_Approval.status == "enrolled",  # Only enrolled, exclude passed
+                Assigned_Course.section_id == section_id,
+                Assigned_Course.isDeleted == 0
+            )
+        ).order_by(
+            Assigned_Course.academic_year.desc(),
+            Assigned_Course.semester.desc()
+        ).first()
+        
+        current_academic_year = None
+        current_semester = None
+        
+        if latest_semester_query:
+            current_academic_year = latest_semester_query.academic_year
+            current_semester = latest_semester_query.semester
+            print(f"DEBUG: Latest academic year: {current_academic_year}, semester: {current_semester}")
+        else:
+            print("DEBUG: No enrolled courses found for student")
+        
+        # Get current enrolled courses (only for the latest academic year and semester, exclude "passed")
         enrolled_courses_query = db.query(
             Assigned_Course_Approval.id.label("approval_id"),
             Assigned_Course_Approval.status.label("enrollment_status"),
@@ -93,17 +121,21 @@ def get_student_dashboard_data(db: Session, current_student: Dict[str, Any]) -> 
         ).filter(
             and_(
                 Assigned_Course_Approval.student_id == student_record.id,
-                Assigned_Course_Approval.status == "enrolled",  # Only enrolled courses, not passed
+                Assigned_Course_Approval.status == "enrolled",  # Only enrolled courses, exclude passed
                 Assigned_Course.section_id == section_id,
+                Assigned_Course.academic_year == current_academic_year,  # Filter by latest academic year
+                Assigned_Course.semester == current_semester,  # Filter by latest semester
                 Assigned_Course.isDeleted == 0,
                 Course.isDeleted == 0,
                 User.isDeleted == 0
             )
         )
         
-        enrolled_courses = enrolled_courses_query.all()
+        enrolled_courses = enrolled_courses_query.all() if current_academic_year and current_semester else []
         
-        # Get pending approvals count
+        print(f"DEBUG: Found {len(enrolled_courses)} enrolled courses for current semester ({current_academic_year} {current_semester})")
+        
+        # Get pending approvals count (all pending, not just current semester)
         pending_count = db.query(Assigned_Course_Approval).filter(
             and_(
                 Assigned_Course_Approval.student_id == student_record.id,
@@ -141,32 +173,12 @@ def get_student_dashboard_data(db: Session, current_student: Dict[str, Any]) -> 
         
         # Check if we have any assigned course IDs to work with
         if not assigned_course_ids:
-            # If no enrolled courses, let's check all schedules for this section
-            all_section_schedules = db.query(
-                Schedule.id.label("schedule_id"),
-                Schedule.assigned_course_id,
-                Schedule.day_of_week,
-                Schedule.start_time,
-                Schedule.end_time,
-                Course.name.label("course_name"),
-                Course.code.label("course_code"),
-                Assigned_Course.room,
-                User.first_name.label("faculty_first_name"),
-                User.last_name.label("faculty_last_name")
-            ).select_from(Schedule).join(
-                Assigned_Course, Schedule.assigned_course_id == Assigned_Course.id
-            ).join(
-                Course, Assigned_Course.course_id == Course.id
-            ).join(
-                User, Assigned_Course.faculty_id == User.id
-            ).filter(
-                and_(
-                    Assigned_Course.section_id == section_id,
-                    Assigned_Course.isDeleted == 0
-                )
-            ).all()
+            print("DEBUG: No enrolled courses found for current semester")
+            # If no enrolled courses for current semester, don't show any schedules
+            all_section_schedules = []
         
         if assigned_course_ids:
+            print(f"DEBUG: Getting schedules for {len(assigned_course_ids)} enrolled courses")
             # Get ALL schedules for enrolled courses (for calendar filtering)
             all_schedules_query = db.query(
                 Schedule.id.label("schedule_id"),
@@ -188,6 +200,8 @@ def get_student_dashboard_data(db: Session, current_student: Dict[str, Any]) -> 
             ).filter(
                 Schedule.assigned_course_id.in_(assigned_course_ids)
             ).order_by(Schedule.day_of_week, Schedule.start_time).all()
+            
+            print(f"DEBUG: Found {len(all_schedules_query)} total schedules for enrolled courses")
             
             # Process all schedules for enrolled courses
             for schedule in all_schedules_query:
@@ -250,6 +264,8 @@ def get_student_dashboard_data(db: Session, current_student: Dict[str, Any]) -> 
                 if is_today:
                     today_schedule.append(schedule_item)
         
+        print(f"DEBUG: Today's schedule has {len(today_schedule)} classes")
+        
         # Find current and next class from today's schedule
         current_class = None
         next_class = None
@@ -279,7 +295,9 @@ def get_student_dashboard_data(db: Session, current_student: Dict[str, Any]) -> 
                 "section_id": section.id,
                 "section_name": section.name,
                 "program_name": program.name,
-                "program_acronym": program.acronym
+                "program_acronym": program.acronym,
+                "current_academic_year": current_academic_year,
+                "current_semester": current_semester
             },
             "current_classes": current_classes,
             "today_schedule": today_schedule,
