@@ -580,6 +580,38 @@ class FacultyCurrentSemesterAttendanceResponse(BaseModel):
     semester: Optional[str] = None
     attendance_summary: Dict[str, Any]
 
+# Faculty Course Attendance Models
+class FacultyCourseAttendanceInfo(BaseModel):
+    """Model for individual attendance record in faculty course attendance view"""
+    attendance_id: int
+    student_id: int
+    user_id: int
+    student_number: str
+    student_name: str
+    student_email: str
+    attendance_date: str
+    attendance_time: Optional[str] = None
+    status: str  # "present", "absent", "late"
+    has_image: bool
+    enrollment_status: str  # From assigned_course_approval
+    created_at: str
+    updated_at: str
+
+class FacultyCourseAttendanceResponse(BaseModel):
+    """Response model for faculty course attendance"""
+    success: bool
+    message: str
+    course_info: Dict[str, Any]
+    section_info: Dict[str, Any]
+    faculty_info: Dict[str, Any]
+    attendance_records: List[FacultyCourseAttendanceInfo]
+    total_records: int
+    attendance_summary: Dict[str, Any]
+    academic_year: Optional[str] = None
+    semester: Optional[str] = None
+    is_current_course: bool
+    available_filters: Dict[str, List[str]]  # Available years, months, days for filtering
+
 #------------------------------------------------------------
 # Health Check
 #------------------------------------------------------------
