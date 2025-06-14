@@ -1775,3 +1775,54 @@ def update_student_status(
     except Exception as e:
         print(f"Error updating student status: {e}")
         raise HTTPException(status_code=500, detail=f"Error updating student status: {str(e)}")
+
+# 4. Get attendance records for a specific course with optional filtering
+@app.get("/faculty/courses/{assigned_course_id}/attendance", response_model=FacultyCourseAttendanceResponse)
+def get_faculty_course_attendance(
+    assigned_course_id: int,
+    academic_year: Optional[str] = None,
+    month: Optional[int] = None,
+    day: Optional[int] = None,
+    current_faculty: Dict[str, Any] = Depends(get_jwt_faculty_dependency()),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Get attendance records for a specific course with optional filtering:
+    4A. Verify faculty has permission to access this course
+    4B. Get all attendance records for the course
+    4C. Apply optional filters (academic year, month, day)
+    4D. Include student enrollment status information
+    4E. Provide attendance summary and available filter options
+    
+    Query Parameters:
+    - academic_year: Filter by academic year (e.g., "2023-2024")
+    - month: Filter by month (1-12)
+    - day: Filter by day (1-31)
+    
+    Requires: Authorization header with Bearer JWT token (Faculty role)
+    """
+    try:
+        # Import the faculty course attendance service
+        from services.database.faculty_course_attendance import get_faculty_course_attendance_records
+        
+        # Get course attendance records
+        attendance_data = get_faculty_course_attendance_records(
+            db, current_faculty, assigned_course_id, academic_year, month, day
+        )
+        
+        if "error" in attendance_data:
+            if "not found" in attendance_data["error"].lower():
+                raise HTTPException(status_code=404, detail=attendance_data["error"])
+            elif "permission" in attendance_data["error"].lower():
+                raise HTTPException(status_code=403, detail=attendance_data["error"])
+            else:
+                raise HTTPException(status_code=500, detail=attendance_data["error"])
+        
+        return FacultyCourseAttendanceResponse(**attendance_data)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting faculty course attendance: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching course attendance: {str(e)}")
