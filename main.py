@@ -256,13 +256,16 @@ class CourseStudentInfo(BaseModel):
     rejection_reason: Optional[str] = None
     enrollment_created_at: Optional[str] = None
     enrollment_updated_at: Optional[str] = None
-    latest_attendance_date: Optional[str] = None
-    latest_attendance_status: Optional[str] = None
-    total_attendance_sessions: int
+    
+    # Attendance Summary
+    total_sessions: int
     present_count: int
     absent_count: int
     late_count: int
+    failed_count: int  # Based on attendance percentage or other criteria
     attendance_percentage: float
+    latest_attendance_date: Optional[str] = None
+    latest_attendance_status: Optional[str] = None
 
 class CourseStudentsResponse(BaseModel):
     """Response model for course students"""
@@ -1670,3 +1673,73 @@ def get_faculty_current_semester_attendance(
     except Exception as e:
         print(f"Error getting faculty current semester attendance: {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching faculty current semester attendance: {str(e)}")
+
+# Faculty Student Status Update Models
+class StudentStatusUpdateRequest(BaseModel):
+    """Request model for updating student enrollment status"""
+    status: str  # "pending", "enrolled", "rejected", "passed", "failed"
+    rejection_reason: Optional[str] = None  # Required if status is "rejected"
+
+class StudentStatusUpdateResponse(BaseModel):
+    """Response model for student status update"""
+    success: bool
+    message: str
+    student_id: int
+    assigned_course_id: int
+    old_status: str
+    new_status: str
+    updated_at: str
+    student_info: Optional[Dict[str, Any]] = None
+
+# 3. Update student enrollment status in a specific course
+@app.put("/faculty/courses/{assigned_course_id}/students/{student_id}/status", response_model=StudentStatusUpdateResponse)
+def update_student_status(
+    assigned_course_id: int,
+    student_id: int,
+    request: StudentStatusUpdateRequest,
+    current_faculty: Dict[str, Any] = Depends(get_jwt_faculty_dependency()),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Update student enrollment status in a specific course:
+    3A. Verify faculty has permission to modify this course
+    3B. Validate the new status value
+    3C. Update the assigned_course_approval record
+    3D. Return updated status information
+    
+    Requires: Authorization header with Bearer JWT token (Faculty role)
+    """
+    try:
+        print(f"=== ENDPOINT REQUEST DEBUG ===")
+        print(f"Request status: {request.status}")
+        print(f"Request rejection_reason: {repr(request.rejection_reason)}")
+        print(f"Request rejection_reason type: {type(request.rejection_reason)}")
+        print("==============================")
+        
+        # Import the student status update service
+        from services.database.faculty_student_status import update_student_enrollment_status
+        
+        # Update student status
+        update_result = update_student_enrollment_status(
+            db, current_faculty, assigned_course_id, student_id, 
+            request.status, request.rejection_reason
+        )
+
+        if "error" in update_result:
+            if "not found" in update_result["error"].lower():
+                raise HTTPException(status_code=404, detail=update_result["error"])
+            elif "permission" in update_result["error"].lower():
+                raise HTTPException(status_code=403, detail=update_result["error"])
+            elif "invalid" in update_result["error"].lower():
+                raise HTTPException(status_code=400, detail=update_result["error"])
+            else:
+                raise HTTPException(status_code=500, detail=update_result["error"])
+        
+        return StudentStatusUpdateResponse(**update_result)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error updating student status: {e}")
+        raise HTTPException(status_code=500, detail=f"Error updating student status: {str(e)}")
