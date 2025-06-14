@@ -496,6 +496,87 @@ class FacultyCourseDetailsResponse(BaseModel):
     total_students: int
     total_sessions: int
 
+# Faculty Attendance Models
+class FacultyAttendanceRecord(BaseModel):
+    """Model for individual attendance record in faculty view"""
+    attendance_id: int
+    assigned_course_id: int
+    course_id: int
+    course_name: str
+    course_code: Optional[str] = None
+    section_name: str
+    program_name: str
+    program_acronym: str
+    academic_year: Optional[str] = None
+    semester: Optional[str] = None
+    room: Optional[str] = None
+    attendance_date: str
+    status: str  # "present", "absent", "late"
+    has_image: bool
+    attendee_user_id: int
+    attendee_name: str
+    attendee_email: str
+    attendee_type: str  # "Student" or "Faculty"
+    attendee_identifier: str  # student_number or employee_number
+    created_at: str
+    updated_at: str
+
+class FacultyAttendanceResponse(BaseModel):
+    """Response model for faculty attendance history"""
+    success: bool
+    message: str
+    faculty_info: Dict[str, Any]
+    attendance_records: List[FacultyAttendanceRecord]
+    total_records: int
+    attendance_summary: Dict[str, Any]
+    course_summary: Dict[str, Any]
+    academic_year_summary: Optional[Dict[str, Any]] = None
+    student_summary: Optional[Dict[str, Any]] = None
+
+# Faculty Current Semester Attendance Models
+class FacultyCurrentSemesterAttendanceRecord(BaseModel):
+    """Model for current semester attendance record in faculty view"""
+    attendance_id: int
+    assigned_course_id: int
+    course_id: int
+    course_name: str
+    course_code: Optional[str] = None
+    course_description: Optional[str] = None
+    attendee_user_id: int
+    attendee_name: str
+    attendee_email: str
+    attendee_type: str  # "Student" or "Faculty"
+    attendee_identifier: str  # student_number or employee_number
+    academic_year: Optional[str] = None
+    semester: Optional[str] = None
+    room: Optional[str] = None
+    attendance_date: Optional[str] = None
+    status: str  # "present", "absent", "late"
+    has_image: bool
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+class FacultyCurrentSemesterCourseInfo(BaseModel):
+    """Model for current semester course information in faculty view"""
+    assigned_course_id: int
+    course_id: int
+    course_name: str
+    course_code: Optional[str] = None
+    academic_year: Optional[str] = None
+    semester: Optional[str] = None
+
+class FacultyCurrentSemesterAttendanceResponse(BaseModel):
+    """Response model for faculty current semester attendance"""
+    success: bool
+    message: str
+    faculty_info: Dict[str, Any]
+    attendance_logs: List[FacultyCurrentSemesterAttendanceRecord]
+    total_logs: int
+    courses: List[FacultyCurrentSemesterCourseInfo]
+    academic_year: Optional[str] = None
+    semester: Optional[str] = None
+    attendance_summary: Dict[str, Any]
+
 #------------------------------------------------------------
 # Health Check
 #------------------------------------------------------------
@@ -1521,3 +1602,71 @@ def get_faculty_course_details(
     except Exception as e:
         print(f"Error getting faculty course details: {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching course details: {str(e)}")
+
+#=============================================================
+# FACULTY ATTENDANCE HISTORY ENDPOINTS
+#=============================================================
+# Uses the JWT dependency to ensure the faculty is authenticated
+
+# 1. Get all attendance records for courses assigned to the faculty
+@app.get("/faculty/attendance", response_model=FacultyAttendanceResponse)
+def get_faculty_attendance(
+    current_faculty: Dict[str, Any] = Depends(get_jwt_faculty_dependency()),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Get all attendance records for courses assigned to the authenticated faculty:
+    1A. Get all attendance logs for courses taught by this faculty
+    1B. Include course, student, and program information for each record
+    1C. Provide attendance summary statistics by course and academic year
+    1D. Include student-wise attendance summary
+    
+    Requires: Authorization header with Bearer JWT token (Faculty role)
+    """
+    try:
+        # Import the faculty attendance service
+        from services.database.faculty_attendance_crud import get_faculty_attendance_history
+        
+        # Get faculty attendance using the database service
+        attendance_data = get_faculty_attendance_history(db, current_faculty)
+        
+        return FacultyAttendanceResponse(**attendance_data)
+        
+    except Exception as e:
+        print(f"Error getting faculty attendance: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching faculty attendance: {str(e)}")
+
+# 2. Get current semester attendance logs for faculty's assigned courses
+@app.get("/faculty/attendance/current-semester", response_model=FacultyCurrentSemesterAttendanceResponse)
+def get_faculty_current_semester_attendance(
+    current_faculty: Dict[str, Any] = Depends(get_jwt_faculty_dependency()),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Get attendance logs for current academic year and semester for faculty's assigned courses:
+    2A. Get courses assigned to faculty for current semester
+    2B. Return attendance logs only for these current semester courses
+    2C. Include academic year and semester information
+    2D. Provide attendance summary for current semester
+    
+    Requires: Authorization header with Bearer JWT token (Faculty role)
+    """
+    try:
+        # Import the faculty attendance service
+        from services.database.faculty_attendance_crud import get_faculty_current_semester_attendance
+        
+        # Get current semester attendance data
+        attendance_data = get_faculty_current_semester_attendance(db, current_faculty)
+        
+        if "error" in attendance_data:
+            raise HTTPException(status_code=500, detail=attendance_data["error"])
+        
+        return FacultyCurrentSemesterAttendanceResponse(**attendance_data)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting faculty current semester attendance: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching faculty current semester attendance: {str(e)}")
