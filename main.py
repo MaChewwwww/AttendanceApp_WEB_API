@@ -611,6 +611,38 @@ class FacultyCourseAttendanceResponse(BaseModel):
     is_current_course: bool
     available_filters: Dict[str, List[str]]  # Available years, months, days for filtering
 
+# Faculty Personal Attendance Models
+class FacultyPersonalAttendanceRecord(BaseModel):
+    """Model for faculty's personal attendance record"""
+    attendance_id: int
+    assigned_course_id: int
+    course_id: int
+    course_name: str
+    course_code: Optional[str] = None
+    section_name: str
+    program_name: str
+    program_acronym: str
+    academic_year: Optional[str] = None
+    semester: Optional[str] = None
+    room: Optional[str] = None
+    attendance_date: str
+    attendance_time: Optional[str] = None  # Added time field
+    status: str  # "present", "absent", "late"
+    has_image: bool
+    created_at: str
+    updated_at: str
+
+class FacultyPersonalAttendanceResponse(BaseModel):
+    """Response model for faculty's personal attendance history"""
+    success: bool
+    message: str
+    faculty_info: Dict[str, Any]
+    attendance_records: List[FacultyPersonalAttendanceRecord]
+    total_records: int
+    attendance_summary: Dict[str, Any]
+    course_summary: Dict[str, Any]
+    academic_year_summary: Optional[Dict[str, Any]] = None
+
 #------------------------------------------------------------
 # Health Check
 #------------------------------------------------------------
@@ -1642,34 +1674,37 @@ def get_faculty_course_details(
 #=============================================================
 # Uses the JWT dependency to ensure the faculty is authenticated
 
-# 1. Get all attendance records for courses assigned to the faculty
-@app.get("/faculty/attendance", response_model=FacultyAttendanceResponse)
+# 1. Get all attendance records for the faculty member's own attendance
+@app.get("/faculty/attendance", response_model=FacultyPersonalAttendanceResponse)
 def get_faculty_attendance(
     current_faculty: Dict[str, Any] = Depends(get_jwt_faculty_dependency()),
     db: Session = Depends(get_db),
     api_key: str = Security(get_api_key)
 ):
     """
-    Get all attendance records for courses assigned to the authenticated faculty:
-    1A. Get all attendance logs for courses taught by this faculty
-    1B. Include course, student, and program information for each record
-    1C. Provide attendance summary statistics by course and academic year
-    1D. Include student-wise attendance summary
+    Get faculty's own personal attendance records:
+    1A. Get all attendance logs where the faculty member was the attendee (user_id matches)
+    1B. Include course information for each attendance record
+    1C. Provide attendance summary statistics
+    1D. Group by academic year and course
+    
+    This endpoint returns attendance records where the faculty member attended classes,
+    using the user_id field in attendance_logs table.
     
     Requires: Authorization header with Bearer JWT token (Faculty role)
     """
     try:
-        # Import the faculty attendance service
-        from services.database.faculty_attendance_crud import get_faculty_attendance_history
+        # Import the faculty personal attendance service
+        from services.database.faculty_personal_attendance_crud import get_faculty_personal_attendance_history
         
-        # Get faculty attendance using the database service
-        attendance_data = get_faculty_attendance_history(db, current_faculty)
+        # Get faculty's personal attendance using the database service
+        attendance_data = get_faculty_personal_attendance_history(db, current_faculty)
         
-        return FacultyAttendanceResponse(**attendance_data)
+        return FacultyPersonalAttendanceResponse(**attendance_data)
         
     except Exception as e:
-        print(f"Error getting faculty attendance: {e}")
-        raise HTTPException(status_code=500, detail=f"Error fetching faculty attendance: {str(e)}")
+        print(f"Error getting faculty personal attendance: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching faculty personal attendance: {str(e)}")
 
 # 2. Get current semester attendance logs for faculty's assigned courses
 @app.get("/faculty/attendance/current-semester", response_model=FacultyCurrentSemesterAttendanceResponse)
@@ -1888,3 +1923,29 @@ def update_attendance_status(
     except Exception as e:
         print(f"Error updating attendance status: {e}")
         raise HTTPException(status_code=500, detail=f"Error updating attendance status: {str(e)}")
+
+# 6. Faculty Personal Attendance Endpoint (alternative endpoint)
+@app.get("/faculty/attendance/personal", response_model=FacultyPersonalAttendanceResponse)
+def get_faculty_personal_attendance(
+    current_faculty: Dict[str, Any] = Depends(get_jwt_faculty_dependency()),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Alternative endpoint for faculty's own personal attendance records:
+    (Same functionality as /faculty/attendance - kept for backward compatibility)
+    
+    Requires: Authorization header with Bearer JWT token (Faculty role)
+    """
+    try:
+        # Import the faculty personal attendance service
+        from services.database.faculty_personal_attendance_crud import get_faculty_personal_attendance_history
+        
+        # Get faculty's personal attendance using the database service
+        attendance_data = get_faculty_personal_attendance_history(db, current_faculty)
+        
+        return FacultyPersonalAttendanceResponse(**attendance_data)
+        
+    except Exception as e:
+        print(f"Error getting faculty personal attendance: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching faculty personal attendance: {str(e)}")
