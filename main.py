@@ -484,10 +484,9 @@ class FacultyCourseDetailsResponse(BaseModel):
     rejected_students: List[FacultyCourseStudentInfo]
     passed_students: List[FacultyCourseStudentInfo]  # Students who passed the course
     failed_students: List[FacultyCourseStudentInfo]  # Students who failed the course
-    attending_students: List[FacultyCourseStudentInfo]  # Students with attendance but no formal approval
     
-    # Statistics summary - now includes attending status
-    enrollment_summary: Dict[str, int]  # Keys: "enrolled", "pending", "rejected", "passed", "failed", "attending", "total"
+    # Statistics summary - enrollment statuses: "enrolled", "pending", "rejected", "passed", "failed", "total"
+    enrollment_summary: Dict[str, int]
     attendance_summary: Dict[str, Any]
     
     # Recent attendance records
