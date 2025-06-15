@@ -1826,3 +1826,66 @@ def get_faculty_course_attendance(
     except Exception as e:
         print(f"Error getting faculty course attendance: {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching course attendance: {str(e)}")
+
+# Faculty Attendance Update Models
+class AttendanceStatusUpdateRequest(BaseModel):
+    """Request model for updating attendance status"""
+    status: str  # "present", "absent", "late"
+
+class AttendanceStatusUpdateResponse(BaseModel):
+    """Response model for attendance status update"""
+    success: bool
+    message: str
+    attendance_id: int
+    old_status: str
+    new_status: str
+    updated_at: str
+    student_info: Optional[Dict[str, Any]] = None
+    course_info: Optional[Dict[str, Any]] = None
+
+# 5. Update attendance status for a specific attendance record
+@app.put("/faculty/courses/{assigned_course_id}/attendance/{attendance_id}/status", response_model=AttendanceStatusUpdateResponse)
+def update_attendance_status(
+    assigned_course_id: int,
+    attendance_id: int,
+    request: AttendanceStatusUpdateRequest,
+    current_faculty: Dict[str, Any] = Depends(get_jwt_faculty_dependency()),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """ 
+    Update attendance status for a specific attendance record:
+    5A. Verify faculty has permission to modify this course
+    5B. Validate the attendance record exists and belongs to the course
+    5C. Validate the new status value
+    5D. Update the attendance_logs record
+    5E. Return updated attendance information
+    
+    Requires: Authorization header with Bearer JWT token (Faculty role)
+    """
+    try:
+        # Import the attendance update service
+        from services.database.faculty_attendance_update import update_attendance_status_record
+        
+        # Update attendance status
+        update_result = update_attendance_status_record(
+            db, current_faculty, assigned_course_id, attendance_id, request.status
+        )
+
+        if "error" in update_result:
+            if "not found" in update_result["error"].lower():
+                raise HTTPException(status_code=404, detail=update_result["error"])
+            elif "permission" in update_result["error"].lower():
+                raise HTTPException(status_code=403, detail=update_result["error"])
+            elif "invalid" in update_result["error"].lower():
+                raise HTTPException(status_code=400, detail=update_result["error"])
+            else:
+                raise HTTPException(status_code=500, detail=update_result["error"])
+        
+        return AttendanceStatusUpdateResponse(**update_result)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error updating attendance status: {e}")
+        raise HTTPException(status_code=500, detail=f"Error updating attendance status: {str(e)}")
