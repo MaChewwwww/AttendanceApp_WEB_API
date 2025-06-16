@@ -643,6 +643,75 @@ class FacultyPersonalAttendanceResponse(BaseModel):
     course_summary: Dict[str, Any]
     academic_year_summary: Optional[Dict[str, Any]] = None
 
+# Faculty Dashboard Models
+class FacultyDashboardCourseInfo(BaseModel):
+    """Model for course information in faculty dashboard"""
+    assigned_course_id: int
+    course_id: int
+    course_name: str
+    course_code: Optional[str] = None
+    course_description: Optional[str] = None
+    section_id: int
+    section_name: str
+    program_id: int
+    program_name: str
+    program_acronym: str
+    academic_year: Optional[str] = None
+    semester: Optional[str] = None
+    room: Optional[str] = None
+    total_students: int
+    enrolled_students: int
+    pending_students: int
+    rejected_students: int
+
+class FacultyDashboardScheduleItem(BaseModel):
+    """Model for schedule item in faculty dashboard"""
+    schedule_id: int
+    assigned_course_id: int
+    course_name: str
+    course_code: Optional[str] = None
+    section_name: str
+    program_acronym: str
+    room: Optional[str] = None
+    day_of_week: str
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    status: str  # "upcoming", "ongoing", "completed"
+    is_today: Optional[bool] = False
+
+class FacultyDashboardRecentAttendance(BaseModel):
+    """Model for recent attendance in faculty dashboard"""
+    attendance_id: int
+    student_name: str
+    course_name: str
+    section_name: str
+    status: str  # "present", "absent", "late"
+    date: Optional[str] = None
+
+class FacultyDashboardScheduleSummary(BaseModel):
+    """Model for schedule summary in faculty dashboard"""
+    total_classes_today: int
+    total_weekly_schedules: int
+    current_class: Optional[FacultyDashboardScheduleItem] = None
+    next_class: Optional[FacultyDashboardScheduleItem] = None
+    current_day: str
+
+class FacultyDashboardResponse(BaseModel):
+    """Response model for faculty dashboard"""
+    success: bool
+    message: str
+    faculty_info: Dict[str, Any]
+    current_courses: List[FacultyDashboardCourseInfo]
+    previous_courses: List[FacultyDashboardCourseInfo]
+    today_schedule: List[FacultyDashboardScheduleItem]
+    all_schedules: List[FacultyDashboardScheduleItem]
+    total_current_courses: int
+    total_previous_courses: int
+    total_pending_approvals: int
+    today_attendance_count: int
+    recent_attendance: List[FacultyDashboardRecentAttendance]
+    schedule_summary: FacultyDashboardScheduleSummary
+
 #------------------------------------------------------------
 # Health Check
 #------------------------------------------------------------
@@ -1949,3 +2018,42 @@ def get_faculty_personal_attendance(
     except Exception as e:
         print(f"Error getting faculty personal attendance: {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching faculty personal attendance: {str(e)}")
+
+#=============================================================
+# FACULTY DASHBOARD ENDPOINTS
+#=============================================================
+# Uses the JWT dependency to ensure the faculty is authenticated
+
+# Import the faculty dashboard service
+from services.database.faculty_dashboard_crud import get_faculty_dashboard_data
+
+# 1. Get comprehensive dashboard data for the authenticated faculty
+@app.get("/faculty/dashboard", response_model=FacultyDashboardResponse)
+def get_faculty_dashboard(
+    current_faculty: Dict[str, Any] = Depends(get_jwt_faculty_dependency()),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Get comprehensive dashboard data for the authenticated faculty:
+    1A. Get faculty's current and previous assigned courses
+   
+    1B. Get today's class schedule from the Schedule table
+    1C. Identify current ongoing class and next upcoming class
+    1D. Get enrollment statistics for each course
+    1E. Get recent attendance activity across faculty's courses
+    1F. Provide pending approval counts and today's attendance statistics
+    
+    Requires: Authorization header with Bearer JWT token (Faculty role)
+    """
+    try:
+        # Get dashboard data using the database service
+        dashboard_data = get_faculty_dashboard_data(db, current_faculty)
+        
+        return FacultyDashboardResponse(**dashboard_data)
+        
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        print(f"Error getting faculty dashboard: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching faculty dashboard data: {str(e)}")
