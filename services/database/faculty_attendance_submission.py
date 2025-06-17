@@ -56,12 +56,14 @@ def validate_faculty_attendance_eligibility(
             Section.name.label("section_name"),
             Program.name.label("program_name"),
             Program.acronym.label("program_acronym")
-        ).select_from(Course).join(
+        ).select_from(Assigned_Course).join(
+            Course, Assigned_Course.course_id == Course.id
+        ).join(
             Section, Assigned_Course.section_id == Section.id
         ).join(
             Program, Section.program_id == Program.id
         ).filter(
-            Course.id == assigned_course.course_id
+            Assigned_Course.id == assigned_course_id
         ).first()
         
         # 3. Check for existing attendance today
@@ -114,7 +116,7 @@ def validate_faculty_attendance_eligibility(
         if isinstance(end_datetime, datetime):
             end_time = end_datetime.time()
         else:
-            end_time = end_datetime
+            end_time = endDatetime
         
         # Create datetime objects for comparison
         today_start = datetime.combine(current_date, start_time)
@@ -248,7 +250,7 @@ def submit_faculty_attendance(
             if isinstance(end_datetime, datetime):
                 end_time = end_datetime.time()
             else:
-                end_time = end_datetime
+                end_time = endDatetime
             
             # Create datetime objects for comparison
             today_start = datetime.combine(current_date, start_time)
