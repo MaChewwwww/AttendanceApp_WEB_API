@@ -1665,6 +1665,184 @@ def get_today_attendance_status(
 
 
 #=============================================================
+# FACULTY ATTENDANCE SUBMISSION ENDPOINTS
+#=============================================================
+# Uses the JWT dependency to ensure the faculty is authenticated
+
+# Faculty Attendance Submission Models (reuse existing models but for faculty context)
+class FacultyAttendanceValidationRequest(BaseModel):
+    """Request model for faculty attendance validation before submission"""
+    assigned_course_id: int
+
+class FacultyAttendanceValidationResponse(BaseModel):
+    """Response model for faculty attendance validation"""
+    can_submit: bool
+    message: str
+    schedule_info: Optional[Dict[str, Any]] = None
+    existing_attendance: Optional[Dict[str, Any]] = None
+
+class FacultyAttendanceSubmissionRequest(BaseModel):
+    """Request model for faculty attendance submission"""
+    assigned_course_id: int
+    face_image: str  # Base64 encoded image
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+class FacultyAttendanceSubmissionResponse(BaseModel):
+    """Response model for faculty attendance submission"""
+    success: bool
+    message: str
+    attendance_id: Optional[int] = None
+    status: Optional[str] = None  # "present", "late"
+    submitted_at: Optional[str] = None
+    course_info: Optional[Dict[str, Any]] = None
+
+# 1. Validate faculty attendance submission eligibility
+@app.post("/faculty/attendance/validate", response_model=FacultyAttendanceValidationResponse)
+def validate_faculty_attendance_submission(
+    request: FacultyAttendanceValidationRequest,
+    current_faculty: Dict[str, Any] = Depends(get_jwt_faculty_dependency()),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Validate if faculty can submit attendance for a specific course:
+    1A. Check if faculty is assigned to teach the course
+    1B. Check if there's an ongoing class schedule
+    1C. Check if faculty has already submitted attendance for today
+    1D. Return validation result with schedule information
+    
+    Requires: Authorization header with Bearer JWT token (Faculty role)
+    """
+    try:
+        # Import the faculty validation function
+        from services.database.faculty_attendance_submission import validate_faculty_attendance_eligibility
+        
+        # Validate faculty attendance eligibility
+        validation_result = validate_faculty_attendance_eligibility(
+            db, current_faculty, request.assigned_course_id
+        )
+        
+        return FacultyAttendanceValidationResponse(**validation_result)
+        
+    except Exception as e:
+        print(f"Error validating faculty attendance submission: {e}")
+        raise HTTPException(status_code=500, detail=f"Error validating faculty attendance submission: {str(e)}")
+
+# 2. Submit faculty attendance with face validation
+@app.post("/faculty/attendance/submit", response_model=FacultyAttendanceSubmissionResponse)
+def submit_faculty_attendance(
+    request: FacultyAttendanceSubmissionRequest,
+    current_faculty: Dict[str, Any] = Depends(get_jwt_faculty_dependency()),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Submit attendance for the authenticated faculty:
+    2A. Validate face image using face validation service
+    2B. Verify face against stored profile image (if available)
+    2C. Validate faculty attendance submission eligibility
+    2D. Create attendance record with face image
+    2E. Determine attendance status (present/late) based on schedule
+
+    Requires: Authorization header with Bearer JWT token (Faculty role)
+    """
+    try:
+        print(f"Faculty attendance submission: {current_faculty.get('name')} -> Course {request.assigned_course_id}")
+
+        # 1. Validate face image first
+        is_valid_face, face_message = validate_face_image(request.face_image)
+        if not is_valid_face:
+            print(f"Faculty face validation failed: {face_message}")
+            return FacultyAttendanceSubmissionResponse(
+                success=False,
+                message=f"Face validation failed: {face_message}",
+                attendance_id=None,
+                status=None,
+                submitted_at=None,
+                course_info=None
+            )
+
+        print("Faculty face validation passed")
+        
+        # 2. Submit faculty attendance
+        from services.database.faculty_attendance_submission import submit_faculty_attendance
+        
+        submission_result = submit_faculty_attendance(
+            db, current_faculty, request.assigned_course_id, 
+            request.face_image, request.latitude, request.longitude
+        )
+        
+        # Handle error responses
+        if "error" in submission_result:
+            error_message = submission_result["error"]
+            print(f"Faculty submission failed: {error_message}")
+            
+            return FacultyAttendanceSubmissionResponse(
+                success=False,
+                message=error_message,
+                attendance_id=None,
+                status=None,
+                submitted_at=None,
+                course_info=None
+            )
+        
+        # Success response
+        response_data = {
+            "success": submission_result.get("success", False),
+            "message": submission_result.get("message", "Faculty attendance submitted successfully"),
+            "attendance_id": submission_result.get("attendance_id"),
+            "status": submission_result.get("status"),
+            "submitted_at": submission_result.get("submitted_at"),
+            "course_info": submission_result.get("course_info")
+        }
+        
+        print(f"Faculty attendance submitted: {submission_result.get('status')} - ID: {submission_result.get('attendance_id')}")
+        return FacultyAttendanceSubmissionResponse(**response_data)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_message = f"Error submitting faculty attendance: {str(e)}"
+        print(f"Faculty attendance submission error: {error_message}")
+        
+        return FacultyAttendanceSubmissionResponse(
+            success=False,
+            message=error_message,
+            attendance_id=None,
+            status=None,
+            submitted_at=None,
+            course_info=None
+        )
+
+# 3. Get faculty's attendance status for today
+@app.get("/faculty/attendance/today")
+def get_faculty_today_attendance_status(
+    current_faculty: Dict[str, Any] = Depends(get_jwt_faculty_dependency()),
+    db: Session = Depends(get_db),
+    api_key: str = Security(get_api_key)
+):
+    """
+    Get faculty's attendance status for today across all assigned courses:
+    3A. Get all courses assigned to faculty
+    3B. Check attendance status for each course today
+    3C. Include schedule information and submission status
+    
+    Requires: Authorization header with Bearer JWT token (Faculty role)
+    """
+    try:
+        from services.database.faculty_attendance_submission import get_faculty_today_attendance_status
+        
+        status_result = get_faculty_today_attendance_status(db, current_faculty)
+        
+        return status_result
+        
+    except Exception as e:
+        print(f"Error getting faculty today's attendance status: {e}")
+        raise HTTPException(status_code=500, detail=f"Error getting faculty today's attendance status: {str(e)}")
+
+
+#=============================================================
 # Faculty ENDPOINTS
 #=============================================================
 # Uses the JWT dependency to ensure the faculty is authenticated
