@@ -1748,10 +1748,21 @@ def submit_faculty_attendance(
     Requires: Authorization header with Bearer JWT token (Faculty role)
     """
     try:
-        print(f"Faculty attendance submission: {current_faculty.get('name')} -> Course {request.assigned_course_id}")
+        print(f"=== FACULTY ATTENDANCE ENDPOINT DEBUG ===")
+        print(f"Request received from: {current_faculty.get('name')} (ID: {current_faculty.get('user_id')})")
+        print(f"Course ID: {request.assigned_course_id}")
+        print(f"Face image provided: {bool(request.face_image)}")
+        print(f"Face image length: {len(request.face_image) if request.face_image else 0}")
+        print(f"Latitude: {request.latitude}")
+        print(f"Longitude: {request.longitude}")
+        print(f"Current faculty data: {current_faculty}")
+        print("========================================")
 
         # 1. Validate face image first
+        print("Step 1: Validating face image...")
         is_valid_face, face_message = validate_face_image(request.face_image)
+        print(f"Face validation result: {is_valid_face} - {face_message}")
+        
         if not is_valid_face:
             print(f"Faculty face validation failed: {face_message}")
             return FacultyAttendanceSubmissionResponse(
@@ -1766,12 +1777,15 @@ def submit_faculty_attendance(
         print("Faculty face validation passed")
         
         # 2. Submit faculty attendance
+        print("Step 2: Calling faculty attendance submission service...")
         from services.database.faculty_attendance_submission import submit_faculty_attendance
         
         submission_result = submit_faculty_attendance(
             db, current_faculty, request.assigned_course_id, 
             request.face_image, request.latitude, request.longitude
         )
+        
+        print(f"Submission service result: {submission_result}")
         
         # Handle error responses
         if "error" in submission_result:
@@ -1797,7 +1811,12 @@ def submit_faculty_attendance(
             "course_info": submission_result.get("course_info")
         }
         
-        print(f"Faculty attendance submitted: {submission_result.get('status')} - ID: {submission_result.get('attendance_id')}")
+        print(f"Faculty attendance submitted successfully:")
+        print(f"- Attendance ID: {submission_result.get('attendance_id')}")
+        print(f"- Status: {submission_result.get('status')}")
+        print(f"- Course: {submission_result.get('course_info', {}).get('course_name', 'Unknown')}")
+        print("========================================")
+        
         return FacultyAttendanceSubmissionResponse(**response_data)
         
     except HTTPException:
@@ -1805,6 +1824,8 @@ def submit_faculty_attendance(
     except Exception as e:
         error_message = f"Error submitting faculty attendance: {str(e)}"
         print(f"Faculty attendance submission error: {error_message}")
+        import traceback
+        traceback.print_exc()
         
         return FacultyAttendanceSubmissionResponse(
             success=False,
