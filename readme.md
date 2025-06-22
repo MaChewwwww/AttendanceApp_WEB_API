@@ -792,7 +792,7 @@ Copy `.env.example` to `.env` and configure:
 - `JWT_ACCESS_TOKEN_EXPIRE_HOURS`: Token expiration in hours (default: 24)
 
 ## Version History
-
+- **🆕 Faculty Attendance Portal & Monitoring (v1.5.0):**
 - **🆕 v1.4.0** (June 2025): Advanced attendance submission with face verification, liveness detection, and anti-spoofing technology
 - **v1.3.0** (June 2025): Dashboard charts and analytics features
 - **v1.2.0** (June 2025): Complete student management system with JWT authentication, onboarding, course management, and attendance tracking
