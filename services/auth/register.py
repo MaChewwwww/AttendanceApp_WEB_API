@@ -92,11 +92,21 @@ def validate_registration_fields(request: RegistrationValidationRequest, db: Ses
             errors.append("Student number is required.")
         else:
             try:
-                existing_student = db.query(StudentModel).filter(StudentModel.student_number == request.student_number).first()
+                existing_student = db.query(StudentModel).filter(
+                    StudentModel.student_number == request.student_number
+                ).first()
                 if existing_student:
-                    errors.append("Student number is already in use.")
+                    existing_user = db.query(UserModel).filter(
+                        UserModel.id == existing_student.user_id
+                    ).first()
+                    if (
+                        existing_user
+                        and getattr(existing_user, "isDeleted", 0) != 1
+                        and getattr(existing_user, "role", None) == "Student"
+                    ):
+                        errors.append("Student number is already in use.")
             except Exception as e:
-                print(f"Error checking student number: {e}")
+                print(f"[DEBUG] Error checking student number: {e}")
                 errors.append("Database error checking student number.")
         
         # 6. Email validation (required, domain check, no duplicates)
@@ -114,7 +124,10 @@ def validate_registration_fields(request: RegistrationValidationRequest, db: Ses
                 
                 # Check for duplicates
                 try:
-                    existing_user = db.query(UserModel).filter(UserModel.email == request.email).first()
+                    existing_user = db.query(UserModel).filter(
+                        UserModel.email == request.email,
+                        getattr(UserModel, "isDeleted", 0) != 1
+                    ).first()
                     if existing_user:
                         errors.append("Email is already in use.")
                 except Exception as e:
