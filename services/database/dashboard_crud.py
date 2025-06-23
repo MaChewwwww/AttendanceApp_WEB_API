@@ -97,7 +97,56 @@ def get_student_dashboard_data(db: Session, current_student: Dict[str, Any]) -> 
         else:
             print("DEBUG: No enrolled courses found for student")
         
-        # Get current enrolled courses (only for the latest academic year and semester)
+        # Find the latest academic year with enrolled courses
+        enrolled_approvals = db.query(
+            Assigned_Course_Approval,
+            Assigned_Course
+        ).join(
+            Assigned_Course, Assigned_Course_Approval.assigned_course_id == Assigned_Course.id
+        ).filter(
+            Assigned_Course_Approval.student_id == student_record.id,
+            Assigned_Course_Approval.status == "enrolled",
+            Assigned_Course.section_id == section_id,
+            Assigned_Course.isDeleted == 0
+        ).all()
+
+        # Helper to extract semester order (1st < 2nd < 3rd < Summer)
+        def semester_order(sem):
+            if not sem:
+                return 99
+            s = sem.lower()
+            if "1" in s:
+                return 1
+            if "2" in s:
+                return 2
+            if "3" in s:
+                return 3
+            if "sum" in s:
+                return 4
+            return 99
+
+        # Find latest academic year
+        academic_years = [ac.academic_year for _, ac in enrolled_approvals if ac.academic_year]
+        latest_academic_year = None
+        if academic_years:
+            def get_year_start(y):
+                try:
+                    return int(y.split("-")[0]) if "-" in y else int(y)
+                except:
+                    return 0
+            valid_years = [(y, get_year_start(y)) for y in academic_years if get_year_start(y) > 0]
+            if valid_years:
+                latest_academic_year = max(valid_years, key=lambda x: x[1])[0]
+
+        # For that academic year, find the lowest semester with enrolled status
+        semesters = [ac.semester for _, ac in enrolled_approvals if ac.academic_year == latest_academic_year]
+        current_semester = None
+        if semesters:
+            current_semester = sorted(semesters, key=semester_order)[0]
+
+        current_academic_year = latest_academic_year
+
+        # Get current enrolled courses (latest academic year, lowest semester)
         enrolled_courses_query = db.query(
             Assigned_Course_Approval.id.label("approval_id"),
             Assigned_Course_Approval.status.label("enrollment_status"),
@@ -119,18 +168,15 @@ def get_student_dashboard_data(db: Session, current_student: Dict[str, Any]) -> 
         ).join(
             User, Assigned_Course.faculty_id == User.id
         ).filter(
-            and_(
-                Assigned_Course_Approval.student_id == student_record.id,
-                Assigned_Course_Approval.status == "enrolled",  # Only enrolled courses
-                Assigned_Course.section_id == section_id,
-                Assigned_Course.academic_year == current_academic_year,  # Filter by latest academic year
-                Assigned_Course.semester == current_semester,  # Filter by latest semester
-                Assigned_Course.isDeleted == 0,
-                Course.isDeleted == 0,
-                User.isDeleted == 0
-            )
+            Assigned_Course_Approval.student_id == student_record.id,
+            Assigned_Course_Approval.status == "enrolled",
+            Assigned_Course.section_id == section_id,
+            Assigned_Course.academic_year == current_academic_year,
+            Assigned_Course.semester == current_semester,
+            Assigned_Course.isDeleted == 0,
+            Course.isDeleted == 0,
+            User.isDeleted == 0
         )
-        
         enrolled_courses = enrolled_courses_query.all() if current_academic_year and current_semester else []
         
         print(f"DEBUG: Found {len(enrolled_courses)} enrolled courses for current semester ({current_academic_year} {current_semester})")

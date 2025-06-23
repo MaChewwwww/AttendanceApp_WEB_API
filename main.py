@@ -1260,7 +1260,7 @@ def get_available_sections_by_program(
         print(f"Error getting available sections for program {program_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching sections: {str(e)}")
 
-# Step 3b: Getting all the assigned_courses using section_id where isDeleted = 0
+# Step 3b: Getting all the assigned_courses using section_id where isDeleted = 0 and specific semester
 @app.get("/student/onboarding/courses/{section_id}", response_model=AvailableCoursesResponse)
 def get_available_assigned_courses_by_section(
     section_id: int,
