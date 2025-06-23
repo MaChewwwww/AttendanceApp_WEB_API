@@ -676,6 +676,7 @@ class DatabaseQueryService:
             ValueError: If assigned course not found
         """
         try:
+            print(f"[DEBUG] get_course_students called with assigned_course_id={assigned_course_id}")
             # 2A & 2E: Verify assigned course exists and get course information
             course_info_result = db.query(
                 Assigned_Course,
@@ -699,12 +700,11 @@ class DatabaseQueryService:
                 Program.isDeleted == 0,
                 User.isDeleted == 0
             ).first()
-            
+            print(f"[DEBUG] course_info_result: {course_info_result}")
             if not course_info_result:
+                print(f"[DEBUG] Assigned course not found for id={assigned_course_id}")
                 raise ValueError("Assigned course not found or has been deleted")
-            
             assigned_course, course, faculty, section, program = course_info_result
-            
             # Prepare course information
             course_info = {
                 "assigned_course_id": assigned_course.id,
@@ -726,7 +726,6 @@ class DatabaseQueryService:
                 "created_at": assigned_course.created_at.isoformat() if assigned_course.created_at else None,
                 "updated_at": assigned_course.updated_at.isoformat() if assigned_course.updated_at else None
             }
-            
             # 2A & 2B: Get all students enrolled in this course with enrollment status
             student_enrollments = db.query(
                 Assigned_Course_Approval,
@@ -740,9 +739,9 @@ class DatabaseQueryService:
                 Assigned_Course_Approval.assigned_course_id == assigned_course_id,
                 User.isDeleted == 0
             ).all()
-            
-            print(f"Found {len(student_enrollments)} student enrollments for course {assigned_course_id}")
-            
+            print(f"[DEBUG] Found {len(student_enrollments)} student enrollments for course {assigned_course_id}")
+            if not student_enrollments:
+                print(f"[DEBUG] No student enrollments found for assigned_course_id={assigned_course_id}")
             students_list = []
             enrollment_summary = {}
             attendance_stats = {
@@ -750,7 +749,6 @@ class DatabaseQueryService:
                 "students_with_attendance": 0,
                 "average_attendance_percentage": 0.0
             }
-            
             for approval, student, user in student_enrollments:
                 # 2C: Get latest attendance record for this student in this course
                 # Note: AttendanceLog uses user_id, not student_id
@@ -771,13 +769,13 @@ class DatabaseQueryService:
                 present_count = len([a for a in attendance_records if a.status == "present"])
                 absent_count = len([a for a in attendance_records if a.status == "absent"])
                 late_count = len([a for a in attendance_records if a.status == "late"])
-                
+                # Add failed_count (set to 0, or add your logic here)
+                failed_count = 0
                 # Calculate attendance percentage
                 if total_sessions > 0:
                     attendance_percentage = round((present_count + late_count) / total_sessions * 100, 2)
                 else:
                     attendance_percentage = 0.0
-                
                 # Prepare student information
                 student_info = {
                     "student_id": student.id,
@@ -791,13 +789,13 @@ class DatabaseQueryService:
                     "enrollment_updated_at": approval.updated_at.isoformat() if approval.updated_at else None,
                     "latest_attendance_date": latest_attendance.created_at.isoformat() if latest_attendance else None,
                     "latest_attendance_status": latest_attendance.status if latest_attendance else None,
-                    "total_attendance_sessions": total_sessions,
+                    "total_sessions": total_sessions,
                     "present_count": present_count,
                     "absent_count": absent_count,
                     "late_count": late_count,
+                    "failed_count": failed_count,
                     "attendance_percentage": attendance_percentage
                 }
-                
                 students_list.append(student_info)
                 
                 # Update enrollment summary
@@ -811,7 +809,7 @@ class DatabaseQueryService:
             
             # Calculate overall attendance statistics
             if attendance_stats["students_with_attendance"] > 0:
-                total_attendance_percentage = sum([s["attendance_percentage"] for s in students_list if s["total_attendance_sessions"] > 0])
+                total_attendance_percentage = sum([s["attendance_percentage"] for s in students_list if s["total_sessions"] > 0])
                 attendance_stats["average_attendance_percentage"] = round(
                     total_attendance_percentage / attendance_stats["students_with_attendance"], 2
                 )
@@ -819,9 +817,9 @@ class DatabaseQueryService:
             # Sort students by name
             students_list.sort(key=lambda x: x["name"])
             
-            print(f"Retrieved {len(students_list)} students for course {course.name}")
-            print(f"Enrollment summary: {enrollment_summary}")
-            print(f"Attendance summary: {attendance_stats}")
+            print(f"[DEBUG] Retrieved {len(students_list)} students for course {course.name}")
+            print(f"[DEBUG] Enrollment summary: {enrollment_summary}")
+            print(f"[DEBUG] Attendance summary: {attendance_stats}")
             
             return {
                 "success": True,
@@ -832,9 +830,8 @@ class DatabaseQueryService:
                 "enrollment_summary": enrollment_summary,
                 "attendance_summary": attendance_stats
             }
-            
         except Exception as e:
-            print(f"Error getting course students for assigned_course_id {assigned_course_id}: {e}")
+            print(f"[DEBUG] Error getting course students for assigned_course_id {assigned_course_id}: {e}")
             import traceback
             traceback.print_exc()
             raise

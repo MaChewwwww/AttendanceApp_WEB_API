@@ -6,7 +6,7 @@ import base64
 
 from models import (
     User, Faculty, Assigned_Course, Course, Section, Program, 
-    Schedule, AttendanceLog
+    Schedule, AttendanceLog, Assigned_Course_Approval, Student
 )
 
 def validate_faculty_attendance_eligibility(
@@ -241,50 +241,20 @@ def submit_faculty_attendance(
     longitude: Optional[float] = None
 ) -> Dict[str, Any]:
     """
-    Submit faculty attendance for a specific course
-    
-    Args:
-        db: Database session
-        current_faculty: Current faculty data from JWT
-        assigned_course_id: ID of the assigned course
-        face_image: Base64 encoded face image
-        latitude: GPS latitude (optional)
-        longitude: GPS longitude (optional)
-        
-    Returns:
-        Dictionary containing submission result
+    Submit faculty attendance for a specific course (with first-time submission logic)
     """
     try:
-        print(f"=== FACULTY ATTENDANCE SUBMISSION DEBUG ===")
-        print(f"Faculty user ID: {current_faculty.get('user_id')}")
-        print(f"Faculty name: {current_faculty.get('name')}")
-        print(f"Assigned course ID: {assigned_course_id}")
-        print(f"Face image length: {len(face_image) if face_image else 0}")
-        print(f"Latitude: {latitude}")
-        print(f"Longitude: {longitude}")
-        
         faculty_user_id = current_faculty.get("user_id")
         current_datetime = datetime.now()
         current_date = current_datetime.date()
-        current_time = current_datetime.time()
         current_day = current_datetime.strftime("%A")
-        
-        print(f"Current datetime: {current_datetime}")
-        
-        # 1. Validate eligibility first
-        print("Step 1: Validating eligibility...")
+
+        # Validate eligibility
         validation_result = validate_faculty_attendance_eligibility(db, current_faculty, assigned_course_id)
-        
-        print(f"Validation result: {validation_result}")
-        
         if not validation_result.get("can_submit", False):
-            print("ERROR: Validation failed")
             return {"error": validation_result.get("message", "Cannot submit attendance")}
-        
-        print("SUCCESS: Validation passed")
-        
-        # 2. Get assigned course information
-        print("Step 2: Getting assigned course information...")
+
+        # Get assigned course
         assigned_course = db.query(Assigned_Course).filter(
             and_(
                 Assigned_Course.id == assigned_course_id,
@@ -292,100 +262,123 @@ def submit_faculty_attendance(
                 Assigned_Course.isDeleted == 0
             )
         ).first()
-        
-        print(f"Assigned course retrieved: {assigned_course is not None}")
-        if assigned_course:
-            print(f"Course details: academic_year={assigned_course.academic_year}, semester={assigned_course.semester}")
-        
         if not assigned_course:
-            print("ERROR: Course assignment not found")
             return {"error": "Course assignment not found"}
-        
-        # 3. Get schedule information to determine status
-        print("Step 3: Getting schedule information...")
+
+        # Get schedule for today
         schedule_query = db.query(Schedule).filter(
             and_(
                 Schedule.assigned_course_id == assigned_course_id,
                 Schedule.day_of_week.ilike(f"%{current_day}%")
             )
         ).first()
-        
-        print(f"Schedule found: {schedule_query is not None}")
-        
-        # 4. Determine attendance status based on time
-        status = "present"  # Default status
-        
-        if schedule_query:
-            print("Step 4: Determining status based on schedule...")
-            start_datetime = schedule_query.start_time if isinstance(schedule_query.start_time, datetime) else schedule_query.start_time
-            end_datetime = schedule_query.end_time if isinstance(schedule_query.end_time, datetime) else schedule_query.end_time
-            
-            print(f"Schedule start: {start_datetime}")
-            print(f"Schedule end: {end_datetime}")
-            
-            # Extract time portion
-            if isinstance(start_datetime, datetime):
-                start_time = start_datetime.time()
-            else:
-                start_time = start_datetime
-                
-            if isinstance(end_datetime, datetime):
-                end_time = end_datetime.time()
-            else:
-                end_time = end_datetime
-            
-            print(f"Extracted times - start: {start_time}, end: {end_time}")
-            
-            # Create datetime objects for comparison
-            today_start = datetime.combine(current_date, start_time)
-            today_end = datetime.combine(current_date, end_time)
-            
-            # Handle overnight classes
-            if end_time < start_time:
-                today_end = today_end + timedelta(days=1)
-            
-            print(f"Class period: {today_start} to {today_end}")
-            
-            # Determine status: late if after class ends
-            if current_datetime > today_end:
-                status = "late"
-                print("Status determined: LATE (after class end)")
-            else:
-                print("Status determined: PRESENT (within class time)")
-        
-        print(f"Final status: {status}")
-        
-        # 5. Convert face image from base64 to binary
-        print("Step 5: Converting face image...")
+        if not schedule_query:
+            return {"error": f"No schedule found for {current_day}"}
+
+        # Extract time
+        if isinstance(schedule_query.start_time, datetime):
+            start_time = schedule_query.start_time.time()
+            end_time = schedule_query.end_time.time()
+        else:
+            start_time = schedule_query.start_time
+            end_time = schedule_query.end_time
+        today_start = datetime.combine(current_date, start_time)
+        today_end = datetime.combine(current_date, end_time)
+        if end_time < start_time:
+            today_end = today_end + timedelta(days=1)
+
+        # Determine status
+        status = "present" if current_datetime <= today_end else "late"
+
+        # Convert face image to binary
         try:
+            if face_image.startswith('data:image'):
+                face_image = face_image.split(',')[1]
             face_image_binary = base64.b64decode(face_image)
-            print(f"Face image decoded successfully, binary length: {len(face_image_binary)}")
-        except Exception as decode_error:
-            print(f"ERROR: Face image decode failed: {decode_error}")
-            return {"error": f"Invalid face image format: {str(decode_error)}"}
-        
-        # 6. Create attendance record
-        print("Step 6: Creating attendance record...")
-        attendance_record = AttendanceLog(
-            user_id=faculty_user_id,
-            assigned_course_id=assigned_course_id,
-            date=current_datetime,
-            image=face_image_binary,
-            status=status,
-            created_at=current_datetime,
-            updated_at=current_datetime
-        )
-        
-        print(f"Attendance record created: user_id={faculty_user_id}, assigned_course_id={assigned_course_id}")
-        
-        db.add(attendance_record)
-        db.commit()
-        db.refresh(attendance_record)
-        
-        print(f"Attendance record saved with ID: {attendance_record.id}")
-        
-        # 7. Get course information for response
-        print("Step 7: Getting course info for response...")
+        except Exception as e:
+            return {"error": f"Invalid face image format: {str(e)}"}
+
+        # Check if any attendance records exist for this course today
+        existing_attendance_count = db.query(AttendanceLog).filter(
+            and_(
+                AttendanceLog.assigned_course_id == assigned_course_id,
+                func.date(AttendanceLog.date) == current_date
+            )
+        ).count()
+
+        submitter_record = None
+        if existing_attendance_count == 0:
+            # First submission: create records for all enrolled students and faculty
+            enrolled_students = db.query(
+                Assigned_Course_Approval.student_id,
+                Student.user_id
+            ).select_from(Assigned_Course_Approval).join(
+                Student, Assigned_Course_Approval.student_id == Student.id
+            ).filter(
+                and_(
+                    Assigned_Course_Approval.assigned_course_id == assigned_course_id,
+                    Assigned_Course_Approval.status == "enrolled"
+                )
+            ).all()
+            attendance_records = []
+            for enrollment in enrolled_students:
+                record = AttendanceLog(
+                    user_id=enrollment.user_id,
+                    assigned_course_id=assigned_course_id,
+                    date=current_datetime,
+                    status="absent",
+                    image=None,
+                    created_at=current_datetime,
+                    updated_at=current_datetime
+                )
+                attendance_records.append(record)
+            # Faculty record (submitter)
+            submitter_record = AttendanceLog(
+                user_id=faculty_user_id,
+                assigned_course_id=assigned_course_id,
+                date=current_datetime,
+                status=status,
+                image=face_image_binary,
+                created_at=current_datetime,
+                updated_at=current_datetime
+            )
+            attendance_records.append(submitter_record)
+            try:
+                db.add_all(attendance_records)
+                db.commit()
+                db.refresh(submitter_record)
+            except Exception as db_error:
+                db.rollback()
+                return {"error": f"Database error: {str(db_error)}"}
+        else:
+            # Not first submission: just add faculty record if not exists
+            existing_faculty_attendance = db.query(AttendanceLog).filter(
+                and_(
+                    AttendanceLog.user_id == faculty_user_id,
+                    AttendanceLog.assigned_course_id == assigned_course_id,
+                    func.date(AttendanceLog.date) == current_date
+                )
+            ).first()
+            if existing_faculty_attendance:
+                return {"error": f"Attendance already submitted for today (Status: {existing_faculty_attendance.status}). Cannot submit again."}
+            submitter_record = AttendanceLog(
+                user_id=faculty_user_id,
+                assigned_course_id=assigned_course_id,
+                date=current_datetime,
+                status=status,
+                image=face_image_binary,
+                created_at=current_datetime,
+                updated_at=current_datetime
+            )
+            try:
+                db.add(submitter_record)
+                db.commit()
+                db.refresh(submitter_record)
+            except Exception as db_error:
+                db.rollback()
+                return {"error": f"Database error: {str(db_error)}"}
+
+        # Get course info for response
         course_info = db.query(
             Course.id.label("course_id"),
             Course.name.label("course_name"),
@@ -402,15 +395,13 @@ def submit_faculty_attendance(
         ).filter(
             Assigned_Course.id == assigned_course_id
         ).first()
-        
-        print(f"Course info for response: {course_info.course_name if course_info else 'Not found'}")
-        
-        response_data = {
+
+        return {
             "success": True,
             "message": f"Faculty attendance submitted successfully for {course_info.course_name}",
-            "attendance_id": attendance_record.id,
+            "attendance_id": submitter_record.id if submitter_record else None,
             "status": status,
-            "submitted_at": current_datetime.isoformat(),
+            "submitted_at": submitter_record.created_at.isoformat() if submitter_record else current_datetime.isoformat(),
             "course_info": {
                 "course_id": course_info.course_id,
                 "course_name": course_info.course_name,
@@ -423,16 +414,8 @@ def submit_faculty_attendance(
                 "room": assigned_course.room
             }
         }
-        
-        print(f"SUCCESS: Faculty attendance submitted")
-        print(f"Response data: {response_data}")
-        print("=========================================")
-        
-        return response_data
-        
     except Exception as e:
         db.rollback()
-        print(f"ERROR in faculty attendance submission: {e}")
         import traceback
         traceback.print_exc()
         return {"error": f"Failed to submit attendance: {str(e)}"}
