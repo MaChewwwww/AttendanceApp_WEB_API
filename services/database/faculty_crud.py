@@ -93,37 +93,22 @@ def get_faculty_courses(db: Session, current_faculty: Dict[str, Any]) -> Dict[st
         previous_courses = []
         semester_summary = {}
         
-        # Find the latest academic year and semester from the faculty's courses
+        # Find the latest academic year from the faculty's courses
         latest_academic_year = None
-        latest_semester = None
-        latest_semester_order = 0
-        
         if courses_query:
-            # First pass: find the latest academic year and semester
             for assigned_course, course, section, program in courses_query:
                 if assigned_course.academic_year:
                     current_year = assigned_course.academic_year
-                    current_semester = assigned_course.semester or ""
-                    current_semester_order = get_semester_order(current_semester)
-                    
-                    # Compare to find the absolute latest
+                    current_year_start = int(current_year.split('-')[0]) if '-' in current_year else 0
                     if latest_academic_year is None:
                         latest_academic_year = current_year
-                        latest_semester = current_semester
-                        latest_semester_order = current_semester_order
                     else:
-                        # Compare academic years first
                         latest_year_start = int(latest_academic_year.split('-')[0]) if '-' in latest_academic_year else 0
-                        current_year_start = int(current_year.split('-')[0]) if '-' in current_year else 0
-                        
-                        if (current_year_start > latest_year_start or 
-                            (current_year_start == latest_year_start and current_semester_order > latest_semester_order)):
+                        if current_year_start > latest_year_start:
                             latest_academic_year = current_year
-                            latest_semester = current_semester
-                            latest_semester_order = current_semester_order
-        
-        print(f"✓ Latest academic year: {latest_academic_year}, Latest semester: {latest_semester}")
-        
+
+        print(f"✓ Latest academic year: {latest_academic_year}")
+
         for assigned_course, course, section, program in courses_query:
             print(f"Processing course: {course.name} - {section.name} ({assigned_course.academic_year}, {assigned_course.semester})")
             
@@ -175,9 +160,7 @@ def get_faculty_courses(db: Session, current_faculty: Dict[str, Any]) -> Dict[st
             }
             
             # Determine if this is current or previous course based on latest found
-            course_semester_order = get_semester_order(assigned_course.semester or "")
-            is_current = (assigned_course.academic_year == latest_academic_year and 
-                         assigned_course.semester == latest_semester)
+            is_current = (assigned_course.academic_year == latest_academic_year)
             
             if is_current:
                 current_courses.append(course_info)
