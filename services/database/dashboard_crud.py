@@ -57,11 +57,7 @@ def get_student_dashboard_data(db: Session, current_student: Dict[str, Any]) -> 
         section_info = db.query(Section, Program).join(
             Program, Section.program_id == Program.id
         ).filter(
-            and_(
-                Section.id == section_id,
-                Section.isDeleted == 0,
-                Program.isDeleted == 0
-            )
+            Section.id == section_id
         ).first()
         
         if not section_info:
@@ -359,6 +355,38 @@ def get_student_dashboard_data(db: Session, current_student: Dict[str, Any]) -> 
             }
         }
         
+        # Check if user is graduated (status_id == 2)
+        if current_student.get('status_id') == 2:
+            return {
+                "success": True,
+                "message": "Student dashboard data retrieved (graduated, no current classes)",
+                "student_info": {
+                    "user_id": current_student["user_id"],
+                    "name": current_student["name"],
+                    "email": current_student["email"],
+                    "student_number": current_student["student_number"],
+                    "has_section": True,
+                    "section_id": section_id,
+                    "section_name": None,
+                    "program_name": None,
+                    "program_acronym": None,
+                    "current_academic_year": None,
+                    "current_semester": None
+                },
+                "current_classes": [],
+                "today_schedule": [],
+                "all_schedules": [],
+                "total_enrolled_courses": 0,
+                "pending_approvals": 0,
+                "schedule_summary": {
+                    "total_classes_today": 0,
+                    "total_weekly_schedules": 0,
+                    "current_class": None,
+                    "next_class": None,
+                    "current_day": datetime.now().strftime("%A")
+                }
+            }
+
         return dashboard_data
         
     except Exception as e:

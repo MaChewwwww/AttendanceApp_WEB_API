@@ -191,7 +191,18 @@ def validate_face_image(image_data):
         if len(eyes) < 2:
             return (False, "Eyes not clearly visible. Please remove sunglasses or any accessories covering your face.")
 
-        # ALL VALIDATIONS PASSED
+        # ALL VALIDATIONS PASSED (face and eyes)
+        # --- ANTI-SPOOFING CHECK (import from face_matcher.py) ---
+        try:
+            from services.face.face_matcher import detect_face_spoofing
+            is_live, spoof_message = detect_face_spoofing(image)
+            if not is_live:
+                return (False, f"Anti-spoofing failed: {spoof_message}")
+        except Exception as spoof_error:
+            print(f"Anti-spoofing check error: {spoof_error}")
+            # If spoofing check fails, still allow registration but log the error
+            pass
+        # If all checks pass
         return (True, "Face validation successful")
         
     except Exception as e:

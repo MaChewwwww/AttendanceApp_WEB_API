@@ -612,7 +612,7 @@ def submit_regular_student_attendance(
             today_end = today_end + timedelta(days=1)
         
         # Determine attendance status based on time
-        late_threshold = timedelta(minutes=30)  # 15 minutes late threshold
+        late_threshold = timedelta(minutes=30)  # 30 minutes late threshold
         
         if current_datetime <= today_start + late_threshold:
             attendance_status = "present"
