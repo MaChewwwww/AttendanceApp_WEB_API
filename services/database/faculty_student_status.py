@@ -222,7 +222,30 @@ def update_student_enrollment_status(
             "updated_at": approval_record.updated_at.isoformat(),
             "student_info": student_data
         }
-        
+
+        # Additional logic: If student has no more 'enrolled' or 'pending' Assigned_Course_Approval, set section to None
+        enrolled_approvals = db.query(Assigned_Course_Approval).filter(
+            Assigned_Course_Approval.student_id == student_id,
+            Assigned_Course_Approval.status == "enrolled"
+        ).count()
+        pending_approvals = db.query(Assigned_Course_Approval).filter(
+            Assigned_Course_Approval.student_id == student_id,
+            Assigned_Course_Approval.status == "pending"
+        ).count()
+        if enrolled_approvals == 0 and pending_approvals == 0:
+            print(f"No more 'enrolled' or 'pending' approvals for student {student_id}. Setting section to None.")
+            student_obj = db.query(Student).filter(Student.id == student_id).first()
+            if student_obj:
+                student_obj.section = None
+                try:
+                    db.commit()
+                    print(f"✓ Student section set to None and committed.")
+                except Exception as commit_error:
+                    print(f"❌ Error committing section update: {commit_error}")
+                    db.rollback()
+        else:
+            print(f"Student {student_id} still has {enrolled_approvals} 'enrolled' or {pending_approvals} 'pending' approvals. Section not changed.")
+
         print(f"✓ Response data prepared: {response_data}")
         return response_data
         

@@ -1251,7 +1251,7 @@ def get_available_sections_by_program(
     Requires: Authorization header with Bearer JWT token
     """
     try:
-        sections = db_query.get_sections_by_program(db, program_id)
+        sections = db_query.get_sections_by_program(db, program_id, current_student["user_id"])
         return AvailableSectionsResponse(sections=sections)
         
     except ValueError as e:
@@ -2054,6 +2054,7 @@ def update_student_status(
         # Import the student status update service
         from services.database.faculty_student_status import update_student_enrollment_status
         
+               
         # Update student status
         update_result = update_student_enrollment_status(
             db, current_faculty, assigned_course_id, student_id, 

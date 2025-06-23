@@ -46,13 +46,15 @@ class DatabaseQueryService:
             raise
     
     @staticmethod
-    def get_sections_by_program(db: Session, program_id: int) -> List[Dict[str, Any]]:
+    def get_sections_by_program(db: Session, program_id: int, user_id: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         Get all active sections for a specific program where isDeleted = 0
+        Optionally filter out sections that the user has previously been assigned to via assigned_course_approval.
         
         Args:
             db: Database session
             program_id: ID of the program
+            user_id: ID of the user (optional)
             
         Returns:
             List of section dictionaries
@@ -79,8 +81,34 @@ class DatabaseQueryService:
                 Program.isDeleted == 0
             ).all()
             
+            # Filtering: Exclude sections that the user has previous assigned_course_approval for
+            exclude_section_ids = set()
+            exclude_prefixes = set()
+            if user_id:
+                from models import Assigned_Course_Approval, Assigned_Course
+                # Get all assigned_course_approvals for this user (student)
+                student = db.query(Student).filter(Student.user_id == user_id).first()
+                if student:
+                    approvals = db.query(Assigned_Course_Approval).filter(
+                        Assigned_Course_Approval.student_id == student.id
+                    ).all()
+                    assigned_course_ids = [a.assigned_course_id for a in approvals]
+                    if assigned_course_ids:
+                        assigned_courses = db.query(Assigned_Course).filter(
+                            Assigned_Course.id.in_(assigned_course_ids)
+                        ).all()
+                        # Get all previous section_ids and their names for this program
+                        previous_sections = db.query(Section).filter(
+                            Section.id.in_([ac.section_id for ac in assigned_courses]),
+                            Section.program_id == program_id
+                        ).all()
+                        # Collect all prefixes (first character) of previous section names
+                        exclude_prefixes = set(s.name[0] for s in previous_sections if s.name)
             section_list = []
             for section, program in sections:
+                # Exclude if section name starts with any of the previous prefixes
+                if any(section.name.startswith(prefix) for prefix in exclude_prefixes):
+                    continue
                 section_info = {
                     "id": section.id,
                     "name": section.name,
@@ -147,9 +175,31 @@ class DatabaseQueryService:
                 Program.isDeleted == 0,
                 User.isDeleted == 0
             ).all()
-            
+
+            # Find the latest academic_year (treat as string, but try to extract start year for comparison)
+            def get_academic_year_start(academic_year_str):
+                if not academic_year_str or academic_year_str == "Unknown":
+                    return None
+                try:
+                    if "-" in academic_year_str:
+                        return int(academic_year_str.split("-")[0])
+                    return int(academic_year_str)
+                except Exception:
+                    return None
+
+            # Get all academic years
+            academic_years = [ac.academic_year for ac, _, _, _, _ in assigned_courses if ac.academic_year]
+            latest_academic_year = None
+            if academic_years:
+                valid_years = [(y, get_academic_year_start(y)) for y in academic_years if get_academic_year_start(y) is not None]
+                if valid_years:
+                    latest_academic_year = max(valid_years, key=lambda x: x[1])[0]
+
+            # Filter assigned_courses to only those with the latest academic_year
+            filtered_courses = [tup for tup in assigned_courses if tup[0].academic_year == latest_academic_year]
+
             course_list = []
-            for assigned_course, course, faculty, section, program in assigned_courses:
+            for assigned_course, course, faculty, section, program in filtered_courses:
                 course_info = {
                     "assigned_course_id": assigned_course.id,
                     "course_id": course.id,
@@ -171,7 +221,6 @@ class DatabaseQueryService:
                     "updated_at": assigned_course.updated_at.isoformat() if assigned_course.updated_at else None
                 }
                 course_list.append(course_info)
-            
             return course_list
             
         except Exception as e:

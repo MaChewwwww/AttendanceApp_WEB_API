@@ -48,16 +48,33 @@ def assign_student_to_section(
             Assigned_Course.section_id == section_id,
             Assigned_Course.isDeleted == 0
         ).all()
-        
-        # Create Assigned_Course_Approval records for each course
+
+        # Only use assigned courses from the latest academic_year
+        def get_academic_year_start(academic_year_str):
+            if not academic_year_str or academic_year_str == "Unknown":
+                return None
+            try:
+                if "-" in academic_year_str:
+                    return int(academic_year_str.split("-")[0])
+                return int(academic_year_str)
+            except Exception:
+                return None
+        academic_years = [ac.academic_year for ac in assigned_courses if ac.academic_year]
+        latest_academic_year = None
+        if academic_years:
+            valid_years = [(y, get_academic_year_start(y)) for y in academic_years if get_academic_year_start(y) is not None]
+            if valid_years:
+                latest_academic_year = max(valid_years, key=lambda x: x[1])[0]
+        filtered_courses = [ac for ac in assigned_courses if ac.academic_year == latest_academic_year]
+
+        # Create Assigned_Course_Approval records for each course in latest academic_year
         approval_records_created = 0
-        for assigned_course in assigned_courses:
+        for assigned_course in filtered_courses:
             # Check if approval already exists
             existing_approval = db.query(Assigned_Course_Approval).filter(
                 Assigned_Course_Approval.assigned_course_id == assigned_course.id,
                 Assigned_Course_Approval.student_id == student.id
             ).first()
-            
             if not existing_approval:
                 approval = Assigned_Course_Approval(
                     assigned_course_id=assigned_course.id,
@@ -66,18 +83,16 @@ def assign_student_to_section(
                 )
                 db.add(approval)
                 approval_records_created += 1
-        
         # Commit the transaction
         db.commit()
         db.refresh(student)
-        
         return {
             "success": True,
             "message": f"Student successfully assigned to section {section.name}",
             "student_id": student.id,
             "section_id": section_id,
             "section_name": section.name,
-            "assigned_courses_count": len(assigned_courses),
+            "assigned_courses_count": len(filtered_courses),
             "approval_records_created": approval_records_created
         }
         
