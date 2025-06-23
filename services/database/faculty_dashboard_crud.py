@@ -78,17 +78,65 @@ def get_faculty_dashboard_data(db: Session, current_faculty: Dict[str, Any]) -> 
         # Get all courses assigned to this faculty to determine current period
         all_assigned_courses = db.query(
             Assigned_Course.academic_year,
-            Assigned_Course.semester
+            Assigned_Course.semester,
+            Assigned_Course.id
         ).filter(
             and_(
                 Assigned_Course.faculty_id == faculty_user_id,
                 Assigned_Course.isDeleted == 0
             )
-        ).distinct().all()
-        
-        # Determine current academic year and semester
-        current_academic_year, current_semester = get_current_academic_period(all_assigned_courses)
-        
+        ).all()
+
+        # Find the latest academic year
+        def get_year_start(y):
+            try:
+                return int(y.split("-")[0]) if "-" in y else int(y)
+            except:
+                return 0
+        academic_years = [ac.academic_year for ac in all_assigned_courses if ac.academic_year]
+        latest_academic_year = None
+        if academic_years:
+            valid_years = [(y, get_year_start(y)) for y in academic_years if get_year_start(y) > 0]
+            if valid_years:
+                latest_academic_year = max(valid_years, key=lambda x: x[1])[0]
+
+        # For that academic year, find all semesters with at least one student enrolled
+        semester_to_course_ids = {}
+        for ac in all_assigned_courses:
+            if ac.academic_year == latest_academic_year:
+                if ac.semester not in semester_to_course_ids:
+                    semester_to_course_ids[ac.semester] = []
+                semester_to_course_ids[ac.semester].append(ac.id)
+
+        # Helper to extract semester order (1st < 2nd < 3rd < Summer)
+        def semester_order(sem):
+            if not sem:
+                return 99
+            s = sem.lower()
+            if "1" in s:
+                return 1
+            if "2" in s:
+                return 2
+            if "3" in s:
+                return 3
+            if "sum" in s:
+                return 4
+            return 99
+
+        # Find the lowest semester with at least one enrolled student
+        current_semester = None
+        for semester in sorted(semester_to_course_ids.keys(), key=semester_order):
+            course_ids = semester_to_course_ids[semester]
+            enrolled_count = db.query(Assigned_Course_Approval).filter(
+                Assigned_Course_Approval.assigned_course_id.in_(course_ids),
+                Assigned_Course_Approval.status == "enrolled"
+            ).count()
+            if enrolled_count > 0:
+                current_semester = semester
+                break
+
+        current_academic_year = latest_academic_year
+
         print(f"DEBUG: Determined current academic year: {current_academic_year}, semester: {current_semester}")
         
         if not current_academic_year or not current_semester:
